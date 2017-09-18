@@ -1,3 +1,5 @@
+#!/usr/bin/python3
+
 import cbt_test_lib
 import os
 
@@ -32,6 +34,10 @@ class CBTTests(object):
     def loop_connect_disconnect(self, vdi=None, n=1000):
         cbt_test_lib.loop_connect_disconnect(
             session=self._session, host=self._host, vdi=vdi, n=n)
+
+    def verify_xapi_nbd_systemd_service(self):
+        cbt_test_lib.verify_xapi_nbd_systemd_service(
+            session=self._session, host=self._host)
 
 
 if __name__ == '__main__':

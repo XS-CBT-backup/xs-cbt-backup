@@ -30,13 +30,15 @@ def create_test_vdi(session, host, sr=None):
         hostname = (host).partition('.')[0]
         [host] = session.xenapi.host.get_by_name_label(hostname)
         pbds = session.xenapi.host.get_PBDs(host)
-        srs = [session.xenapi.PBD.get_SR(pbd) for pbd in pbds
-               if session.xenapi.PBD.get_currently_attached(pbd) is True]
-        user_srs = [sr
-                    for sr in srs
-                    if sr is not None and
-                    session.xenapi.SR.get_content_type(sr) == "user" and
-                    session.xenapi.SR.get_shared(sr) is False]
+        srs = [
+            session.xenapi.PBD.get_SR(pbd) for pbd in pbds
+            if session.xenapi.PBD.get_currently_attached(pbd) is True
+        ]
+        user_srs = [
+            sr for sr in srs
+            if sr is not None and session.xenapi.SR.get_content_type(sr) ==
+            "user" and session.xenapi.SR.get_shared(sr) is False
+        ]
         sr = get_first_safely(user_srs)
 
     new_vdi_record = {
@@ -102,3 +104,22 @@ def loop_connect_disconnect(session, host, vdi=None, n=1000):
                 session.xenapi.VDI.destroy(vdi_ref)
     finally:
         session.xenapi.session.logout()
+
+
+def run_ssh_command(host, command):
+    import subprocess
+    subprocess.check_output([
+        "sshpass", "-p", "xenroot", "ssh", "-o",
+        "UserKnownHostsFile=/dev/null", "-o", "StrictHostKeyChecking=no", "-l",
+        "root", host
+    ] + command)
+
+
+def control_xapi_nbd_service(host, service_command):
+    run_ssh_command(host, ["service", "xapi-nbd", service_command])
+
+
+def verify_xapi_nbd_systemd_service(session, host):
+    # verify that the service is running & properly working
+    control_xapi_nbd_service(host=host, service_command="status")
+    read_from_vdi(session=session, host=host)
