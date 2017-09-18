@@ -24,6 +24,7 @@ def create_session(pool_master, username, password):
 
 
 def create_test_vdi(session, host, sr=None):
+    print("Creating a VDI")
     if sr is None:
         # Get an SR that is only attached to this host (not shared), for
         # testing local SRs
@@ -60,13 +61,12 @@ def read_from_vdi(session, host, vdi=None):
 
     if vdi is None:
         print("Creating a VDI")
-        vdi_ref = create_test_vdi(session=session, host=host)
-        vdi = session.xenapi.VDI.get_uuid(vdi_ref)
+        vdi = create_test_vdi(session=session, host=host)
         delete_vdi = True
     else:
         delete_vdi = False
 
-    c = xapi_nbd_client(hostname=host, vdi=vdi, session=session)
+    c = xapi_nbd_client(host=host, vdi=vdi, session=session)
 
     # This usually gives us some interesting text for the ISO VDIs :)
     # If we read from position 0 that's boring, we get all zeros
@@ -83,25 +83,52 @@ def read_from_vdi(session, host, vdi=None):
         # because the VBD has not yet been cleaned up.
         time.sleep(2)
 
-        session.xenapi.VDI.destroy(vdi_ref)
+        session.xenapi.VDI.destroy(vdi)
 
 
 def loop_connect_disconnect(session, host, vdi=None, n=1000):
     from xapi_nbd_client import xapi_nbd_client
     if vdi is None:
-        print("Creating a VDI")
-        vdi_ref = create_test_vdi(session=session, host=host)
-        vdi = session.xenapi.VDI.get_uuid(vdi_ref)
+        vdi = create_test_vdi(session=session, host=host)
         delete_vdi = True
 
     try:
         try:
             for i in range(n):
                 print("{}: connecting to {} on {}".format(i, vdi, host))
-                xapi_nbd_client(host, vdi, session=session)
+                xapi_nbd_client(host=host, vdi=vdi, session=session)
         finally:
             if delete_vdi:
-                session.xenapi.VDI.destroy(vdi_ref)
+                session.xenapi.VDI.destroy(vdi)
+    finally:
+        session.xenapi.session.logout()
+
+
+def parallel_nbd_connections(session, host, same_vdi=True, n=1000):
+    from xapi_nbd_client import xapi_nbd_client
+
+    # Stash the NBD clients here to avoid them being garbage collected
+    # and disconnected immediately after creation :S.
+    open_nbd_connections = []
+    vdis_created = []
+
+    if same_vdi:
+        vdi = create_test_vdi(session=session, host=host)
+        vdis_created += [vdi]
+
+    try:
+        try:
+            for i in range(n):
+                if not same_vdi:
+                    vdi = create_test_vdi(session=session, host=host)
+                    vdis_created += [vdi]
+                print("{}: connecting to {} on {}".format(i, vdi, host))
+                open_nbd_connections += [
+                    xapi_nbd_client(host=host, vdi=vdi, session=session)
+                ]
+        finally:
+            for vdi in vdis_created:
+                session.xenapi.VDI.destroy(vdi)
     finally:
         session.xenapi.session.logout()
 

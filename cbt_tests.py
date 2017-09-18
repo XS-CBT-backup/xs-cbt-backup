@@ -35,6 +35,10 @@ class CBTTests(object):
         cbt_test_lib.loop_connect_disconnect(
             session=self._session, host=self._host, vdi=vdi, n=n)
 
+    def parallel_nbd_connections(self, same_vdi=True, n=1000):
+        cbt_test_lib.parallel_nbd_connections(
+            session=self._session, host=self._host, same_vdi=same_vdi, n=n)
+
     def verify_xapi_nbd_systemd_service(self):
         cbt_test_lib.verify_xapi_nbd_systemd_service(
             session=self._session, host=self._host)

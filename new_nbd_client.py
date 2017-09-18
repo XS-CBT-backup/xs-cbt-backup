@@ -34,13 +34,13 @@ class new_nbd_client(object):
     NBD_REQUEST_MAGIC = 0x25609513
     NBD_REPLY_MAGIC = 0x67446698
 
-    def __init__(self, hostname, export_name="", port=10809):
+    def __init__(self, host, export_name="", port=10809):
         print("Connecting to export '{}' on host '{}'"
-              .format(export_name, hostname))
+              .format(export_name, host))
         self._flushed = True
         self._closed = True
         self._handle = 0
-        self._s = socket.create_connection((hostname, port))
+        self._s = socket.create_connection((host, port))
         self._closed = False
         self._non_fixed_new_style_handshake(export_name)
 
