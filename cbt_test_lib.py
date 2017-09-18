@@ -104,7 +104,7 @@ def loop_connect_disconnect(session, host, vdi=None, n=1000):
         session.xenapi.session.logout()
 
 
-def parallel_nbd_connections(session, host, same_vdi=True, n=1000):
+def parallel_nbd_connections(session, host, same_vdi=True, n=100):
     from xapi_nbd_client import xapi_nbd_client
 
     # Stash the NBD clients here to avoid them being garbage collected
@@ -127,8 +127,13 @@ def parallel_nbd_connections(session, host, same_vdi=True, n=1000):
                     xapi_nbd_client(host=host, vdi=vdi, session=session)
                 ]
         finally:
+            for c in open_nbd_connections:
+                c.close()
+            print("Destroying {} VDIs".format(len(vdis_created)))
             for vdi in vdis_created:
+                print("Destroying VDI {}".format(vdi))
                 session.xenapi.VDI.destroy(vdi)
+                print("VDI destroyed")
     finally:
         session.xenapi.session.logout()
 

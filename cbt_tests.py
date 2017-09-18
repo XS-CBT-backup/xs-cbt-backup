@@ -35,7 +35,7 @@ class CBTTests(object):
         cbt_test_lib.loop_connect_disconnect(
             session=self._session, host=self._host, vdi=vdi, n=n)
 
-    def parallel_nbd_connections(self, same_vdi=True, n=1000):
+    def parallel_nbd_connections(self, same_vdi=True, n=100):
         cbt_test_lib.parallel_nbd_connections(
             session=self._session, host=self._host, same_vdi=same_vdi, n=n)
 
