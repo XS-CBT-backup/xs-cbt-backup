@@ -120,6 +120,16 @@ def control_xapi_nbd_service(host, service_command):
 
 
 def verify_xapi_nbd_systemd_service(session, host):
-    # verify that the service is running & properly working
+    # Verify that the service is running & properly working
+    # This will fail if the service isn't running
     control_xapi_nbd_service(host=host, service_command="status")
+    read_from_vdi(session=session, host=host)
+    control_xapi_nbd_service(host=host, service_command="stop")
+    try:
+        read_from_vdi(session=session, host=host)
+        running = True
+    except ConnectionRefusedError:
+        running = False
+    assert (running is False)
+    control_xapi_nbd_service(host=host, service_command="restart")
     read_from_vdi(session=session, host=host)
