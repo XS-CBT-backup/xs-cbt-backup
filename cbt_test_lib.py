@@ -2,6 +2,9 @@ import XenAPI
 
 program_name = "cbt_tests.py"
 
+# 64K blocks
+BLOCK_SIZE = 64 * 1024
+
 
 def get_first_safely(iterable):
     """Gets the 'first' element of an iterable, if any, or None"""
@@ -23,13 +26,16 @@ def create_session(pool_master, username, password):
     return session
 
 
-def create_test_vdi(session, host, sr=None):
+def create_test_vdi(session, host=None, sr=None):
     print("Creating a VDI")
     if sr is None:
         # Get an SR that is only attached to this host (not shared), for
         # testing local SRs
-        hostname = (host).partition('.')[0]
-        [host] = session.xenapi.host.get_by_name_label(hostname)
+        if host is not None:
+            hostname = (host).partition('.')[0]
+            [host] = session.xenapi.host.get_by_name_label(hostname)
+        else:
+            host = get_first_safely(session.xenapi.host.get_all())
         pbds = session.xenapi.host.get_PBDs(host)
         srs = [
             session.xenapi.PBD.get_SR(pbd) for pbd in pbds
@@ -46,7 +52,7 @@ def create_test_vdi(session, host, sr=None):
         "SR": sr,
         "virtual_size": 40000000,
         "type": "user",
-        "sharable": True,
+        "sharable": False,
         "read_only": False,
         "other_config": {},
         "name_label": "test"
@@ -165,3 +171,60 @@ def verify_xapi_nbd_systemd_service(session, host):
     assert (running is False)
     control_xapi_nbd_service(host=host, service_command="restart")
     read_from_vdi(session=session, host=host)
+
+
+def download_changed_blocks_in_bitmap_from_nbd(session, vdi, bitmap):
+
+    from xapi_nbd_client import xapi_nbd_client
+    import base64
+
+    bitmap = base64.b64decode(bitmap)
+    c = xapi_nbd_client(session=session, vdi=vdi)
+    print("Size of network block device: %s" % c.size())
+    for i in range(0, len(bitmap) - 1):
+        if bitmap[i] == 1:
+            offset = i * BLOCK_SIZE
+            print("Reading %d bytes from offset %d" % (BLOCK_SIZE, offset))
+            data = c.read(offset=offset, length=BLOCK_SIZE)
+            yield data
+    c.close()
+
+
+def get_cbt_bitmap(session, vdi_from=None, vdi_to=None):
+    if vdi_to is None:
+        vdi_to = create_test_vdi(session=session)
+        session.xenapi.VDI.enable_cbt(vdi_to)
+    if vdi_from is None:
+        vdi_from = session.xenapi.VDI.snapshot(vdi_to)
+
+    return session.xenapi.VDI.list_changed_blocks(vdi_from, vdi_to)
+
+
+def download_changed_blocks(session, vdi_from=None, vdi_to=None):
+    if vdi_to is None:
+        vdi_to = create_test_vdi(session=session)
+        session.xenapi.VDI.enable_cbt(vdi_to)
+    if vdi_from is None:
+        vdi_from = session.xenapi.VDI.snapshot(vdi_to)
+
+    bitmap = get_cbt_bitmap(session, vdi_from, vdi_to)
+    return download_changed_blocks_in_bitmap_from_nbd(
+        session=session, vdi=vdi_to, bitmap=bitmap)
+
+
+def write_blocks_consecutively(changed_blocks, output_file=None):
+    import tempfile
+    if output_file is None:
+        out = tempfile.NamedTemporaryFile('ab')
+    else:
+        out = open(output_file, 'ab')
+    for b in changed_blocks:
+        out.write(b)
+    out.close()
+    return out.name
+
+
+def save_changed_blocks(session, vdi_from=None, vdi_to=None, output_file=None):
+    blocks = download_changed_blocks(
+        session=session, vdi_from=vdi_from, vdi_to=vdi_to)
+    return write_blocks_consecutively(blocks, output_file)

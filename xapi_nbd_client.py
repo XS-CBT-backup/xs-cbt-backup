@@ -2,16 +2,17 @@ from new_nbd_client import new_nbd_client
 
 
 class xapi_nbd_client(new_nbd_client):
-    def __init__(self, session, host, vdi):
+    def __init__(self, session, vdi):
         from urllib.parse import urlparse
         from pprint import pprint as pp
 
         uris = session.xenapi.VDI.get_nbd_info(vdi)
         pp('Can connect to the following URIs:')
         pp(uris)
-        uri = urlparse(uris[0])
+        uri = uris[0]
         pp('Connecting to URI:')
         pp(uri)
+        uri = urlparse(uri)
         host_and_port = uri.netloc.split(':')
         host = host_and_port[0]
         try:

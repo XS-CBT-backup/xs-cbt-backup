@@ -43,6 +43,36 @@ class CBTTests(object):
         cbt_test_lib.verify_xapi_nbd_systemd_service(
             session=self._session, host=self._host)
 
+    def get_cbt_bitmap(self, vdi_from_uuid=None, vdi_to_uuid=None):
+        if vdi_from_uuid is not None:
+            vdi_from = self._session.xenapi.VDI.get_by_uuid(vdi_from_uuid)
+        else:
+            vdi_from = None
+        if vdi_to_uuid is not None:
+            vdi_to = self._session.xenapi.VDI.get_by_uuid(vdi_from_uuid)
+        else:
+            vdi_to = None
+        print(cbt_test_lib.get_cbt_bitmap(
+            session=self._session, vdi_from=vdi_from, vdi_to=vdi_to))
+
+    def save_changed_blocks(self,
+                            vdi_from_uuid=None,
+                            vdi_to_uuid=None,
+                            output_file=None):
+        if vdi_from_uuid is not None:
+            vdi_from = self._session.xenapi.VDI.get_by_uuid(vdi_from_uuid)
+        else:
+            vdi_from = None
+        if vdi_to_uuid is not None:
+            vdi_to = self._session.xenapi.VDI.get_by_uuid(vdi_from_uuid)
+        else:
+            vdi_to = None
+        return cbt_test_lib.save_changed_blocks(
+            session=self._session,
+            vdi_from=vdi_from,
+            vdi_to=vdi_to,
+            output_file=output_file)
+
 
 if __name__ == '__main__':
     import fire
