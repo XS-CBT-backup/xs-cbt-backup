@@ -7,10 +7,10 @@ class xapi_nbd_client(new_nbd_client):
         from pprint import pprint as pp
 
         uris = session.xenapi.VDI.get_nbd_info(vdi)
-        pp('Can connect using URIs:')
+        pp('Can connect to the following URIs:')
         pp(uris)
         uri = urlparse(uris[0])
-        pp('Using URI:')
+        pp('Connecting to URI:')
         pp(uri)
         host_and_port = uri.netloc.split(':')
         host = host_and_port[0]
