@@ -21,14 +21,21 @@ import struct
 
 class new_nbd_client(object):
 
-    READ = 0
-    WRITE = 1
-    DISCONNECT = 2
-    FLUSH = 3
+    # Request types
+    NBD_CMD_READ = 0
+    NBD_CMD_WRITE = 1
+    # a disconnect request
+    NBD_CMD_DISC = 2
+    NBD_CMD_FLUSH = 3
 
-    FLAG_HAS_FLAGS = (1 << 0)
-    FLAG_SEND_FLUSH = (1 << 2)
+    # Transmission flags
+    NBD_FLAG_HAS_FLAGS = (1 << 0)
+    NBD_FLAG_SEND_FLUSH = (1 << 2)
 
+    # Client flags
+    NBD_FLAG_C_FIXED_NEWSTYLE = (1 << 0)
+
+    # Option types
     NBD_OPT_EXPORT_NAME = 1
 
     NBD_REQUEST_MAGIC = 0x25609513
@@ -61,7 +68,7 @@ class new_nbd_client(object):
         assert(nbd_magic == b'IHAVEOPT')
         buf = self._s.recv(2)
         self._flags = struct.unpack(">H", buf)[0]
-        assert(self._flags & self.FLAG_HAS_FLAGS != 0)
+        assert(self._flags & self.NBD_FLAG_HAS_FLAGS != 0)
         client_flags = struct.pack('>L', 0)
         self._s.sendall(client_flags)
 
@@ -114,7 +121,7 @@ class new_nbd_client(object):
         self._check_value("offset", offset)
         self._check_value("size", len(data))
         self._flushed = False
-        header = self._build_header(self.WRITE, offset, len(data))
+        header = self._build_header(self.NBD_CMD_WRITE, offset, len(data))
         self._s.sendall(header + data)
         (_, errno) = self._parse_reply()
         assert(errno == 0)
@@ -124,14 +131,14 @@ class new_nbd_client(object):
         print("NBD_CMD_READ")
         self._check_value("offset", offset)
         self._check_value("length", length)
-        header = self._build_header(self.READ, offset, length)
+        header = self._build_header(self.NBD_CMD_READ, offset, length)
         self._s.sendall(header)
         (data, errno) = self._parse_reply(length)
         assert(errno == 0)
         return data
 
     def need_flush(self):
-        if self._flags & self.FLAG_SEND_FLUSH != 0:
+        if self._flags & self.NBD_FLAG_SEND_FLUSH != 0:
             return True
         else:
             return False
@@ -141,7 +148,7 @@ class new_nbd_client(object):
         if self.need_flush() is False:
             self._flushed = True
             return True
-        header = self._build_header(self.FLUSH, 0, 0)
+        header = self._build_header(self.NBD_CMD_FLUSH, 0, 0)
         self._s.sendall(header)
         (_, errno) = self._parse_reply()
         if not errno:
@@ -150,7 +157,7 @@ class new_nbd_client(object):
 
     def _disconnect(self):
         print("NBD_CMD_DISC")
-        header = self._build_header(self.DISCONNECT, 0, 0)
+        header = self._build_header(self.NBD_CMD_DISC, 0, 0)
         self._s.sendall(header)
 
     def size(self):
