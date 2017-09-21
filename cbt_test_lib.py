@@ -72,7 +72,7 @@ def read_from_vdi(session, host, vdi=None):
     else:
         delete_vdi = False
 
-    c = xapi_nbd_client(host=host, vdi=vdi, session=session)
+    c = xapi_nbd_client(vdi=vdi, session=session)
 
     # This usually gives us some interesting text for the ISO VDIs :)
     # If we read from position 0 that's boring, we get all zeros
@@ -102,7 +102,7 @@ def loop_connect_disconnect(session, host, vdi=None, n=1000):
         try:
             for i in range(n):
                 print("{}: connecting to {} on {}".format(i, vdi, host))
-                xapi_nbd_client(host=host, vdi=vdi, session=session)
+                xapi_nbd_client(vdi=vdi, session=session)
         finally:
             if delete_vdi:
                 session.xenapi.VDI.destroy(vdi)

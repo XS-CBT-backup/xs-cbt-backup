@@ -74,26 +74,28 @@ class new_nbd_client(object):
         data = bytes()
         while len(data) < data_length:
             data = data + self._s.recv(data_length - len(data))
-        assert(len(data) == data_length)
+        assert (len(data) == data_length)
         return data
 
     def _send_option(self, option, data=[]):
         print("NBD sending option header")
         data_length = len(data)
         print("option='%d' data_length='%d'" % (option, data_length))
-        header = struct.pack(">QLL", b'IHAVEOPT', option, data_length)
+        self._s.sendall(b'IHAVEOPT')
+        header = struct.pack(">LL", option, data_length)
         self._s.sendall(header + data)
         self._option = option
 
     def _parse_option_reply(self):
         print("NBD parsing option reply")
         reply = self._s.recv(8 + 4 + 4)
-        (magic, option, reply_type, length_length) = struct.unpack(">QLLL", reply)
+        (magic, option, reply_type, data_length) = struct.unpack(
+            ">QLLL", reply)
         print("NBD reply magic='%x' option='%d' reply_type='%d'" %
               (magic, option, reply_type))
-        assert(magic == self.OPTION_REPLY_MAGIC)
-        assert(option == self._option)
-        assert(reply_rype == NBD_REP_ACK)
+        assert (magic == self.OPTION_REPLY_MAGIC)
+        assert (option == self._option)
+        assert (reply_type == self.NBD_REP_ACK)
         data = self._receive_all_data(data_length)
         return data
 
@@ -108,24 +110,24 @@ class new_nbd_client(object):
         context.verify_mode = ssl.CERT_REQUIRED
         context.load_verify_locations(cafile=self.ca_cert)
         cleartext_socket = self._s
-        self._s = context.wrap_socket(cleartext_socket, server_side=False,
-                                      do_handshake_on_connect=True)
+        self._s = context.wrap_socket(
+            cleartext_socket, server_side=False, do_handshake_on_connect=True)
 
     def _initiate_TLS_upgrade(self):
         # start TLS negotiation
         self._send_option(self.NBD_OPT_STARTTLS)
         # receive reply
         data = self._parse_option_reply()
-        assert(len(data) == 0)
+        assert (len(data) == 0)
 
     def _fixed_new_style_handshake(self, export_name):
         nbd_magic = self._s.recv(len("NBDMAGIC"))
-        assert(nbd_magic == b'NBDMAGIC')
+        assert (nbd_magic == b'NBDMAGIC')
         nbd_magic = self._s.recv(len("IHAVEOPT"))
-        assert(nbd_magic == b'IHAVEOPT')
+        assert (nbd_magic == b'IHAVEOPT')
         buf = self._s.recv(2)
         self._flags = struct.unpack(">H", buf)[0]
-        assert(self._flags & self.NBD_FLAG_HAS_FLAGS != 0)
+        assert (self._flags & self.NBD_FLAG_HAS_FLAGS != 0)
         client_flags = self.NBD_FLAG_C_FIXED_NEWSTYLE
         client_flags = struct.pack('>L', client_flags)
         self._s.sendall(client_flags)
@@ -137,7 +139,7 @@ class new_nbd_client(object):
             self._upgrade_socket_to_TLS()
 
         # request export
-        self._send_option(self.NBD_OPT_EXPORT_NAME, str.cencode(export_name))
+        self._send_option(self.NBD_OPT_EXPORT_NAME, str.encode(export_name))
 
         # non-fixed newstyle negotiation: we get this if the server is willing
         # to allow the export
@@ -158,10 +160,10 @@ class new_nbd_client(object):
         print("NBD parsing response, data_length=%d" % data_length)
         reply = self._s.recv(4 + 4 + 8)
         (magic, errno, handle) = struct.unpack(">LLQ", reply)
-        print("NBD response magic='%x' errno='%d' handle='%d'" %
-              (magic, errno, handle))
-        assert(magic == self.NBD_REPLY_MAGIC)
-        assert(handle == self._handle)
+        print("NBD response magic='%x' errno='%d' handle='%d'" % (magic, errno,
+                                                                  handle))
+        assert (magic == self.NBD_REPLY_MAGIC)
+        assert (handle == self._handle)
         self._handle += 1
         data = self._receive_all_data(data_length=data_length)
         print("NBD response received data_length=%d bytes" % data_length)
@@ -177,10 +179,11 @@ class new_nbd_client(object):
         self._check_value("offset", offset)
         self._check_value("size", len(data))
         self._flushed = False
-        header = self._build_request_header(self.NBD_CMD_WRITE, offset, len(data))
+        header = self._build_request_header(self.NBD_CMD_WRITE, offset,
+                                            len(data))
         self._s.sendall(header + data)
         (_, errno) = self._parse_reply()
-        assert(errno == 0)
+        assert (errno == 0)
         return len(data)
 
     def read(self, offset, length):
@@ -190,7 +193,7 @@ class new_nbd_client(object):
         header = self._build_request_header(self.NBD_CMD_READ, offset, length)
         self._s.sendall(header)
         (data, errno) = self._parse_reply(length)
-        assert(errno == 0)
+        assert (errno == 0)
         return data
 
     def need_flush(self):
