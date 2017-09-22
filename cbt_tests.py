@@ -14,7 +14,12 @@ class CBTTests(object):
     # 64K blocks
     BLOCK_SIZE = 64 * 1024
 
-    def __init__(self, pool_master, username, password, host=None):
+    def __init__(self,
+                 pool_master,
+                 username,
+                 password,
+                 host=None,
+                 use_tls=True):
         self._pool_master = pool_master
         self._host = host or pool_master
         self._username = username
@@ -29,6 +34,11 @@ class CBTTests(object):
         session = p.session.login_with_password(self._username,
                                                 self._password)['Value']
         return session
+
+    def get_certfile(self):
+        return self.run_ssh_command(
+            ["xe", "host-get-server-certificate",
+             "--multiple"]).decode("utf-8")
 
     def create_session(self):
         import XenAPI
@@ -153,11 +163,11 @@ class CBTTests(object):
 
     def run_ssh_command(self, command):
         import subprocess
-        subprocess.check_output([
+        return (subprocess.check_output([
             "sshpass", "-p", "xenroot", "ssh", "-o",
             "UserKnownHostsFile=/dev/null", "-o", "StrictHostKeyChecking=no",
             "-l", "root", self._host
-        ] + command)
+        ] + command))
 
     def control_xapi_nbd_service(self, service_command):
         self.run_ssh_command(["service", "xapi-nbd", service_command])
@@ -232,7 +242,12 @@ class CBTTests(object):
 
 
 class CBTTestsCLI(object):
-    def __init__(self, pool_master, host=None, username=None, password=None):
+    def __init__(self,
+                 pool_master,
+                 host=None,
+                 username=None,
+                 password=None,
+                 use_tls=True):
         username = username or os.environ['XS_USERNAME']
         password = password or os.environ['XS_PASSWORD']
         self._pool_master = pool_master
@@ -243,7 +258,8 @@ class CBTTestsCLI(object):
             pool_master=pool_master,
             username=username,
             password=password,
-            host=host)
+            host=host,
+            use_tls=use_tls)
         self._session = self._cbt_tests._session
 
     def create_test_session(self):
@@ -292,6 +308,9 @@ class CBTTestsCLI(object):
             vdi_to = None
         return self._cbt_tests.save_changed_blocks(
             vdi_from=vdi_from, vdi_to=vdi_to, output_file=output_file)
+
+    def get_certfile(self):
+        print(self._cbt_tests.get_certfile())
 
 
 if __name__ == '__main__':
