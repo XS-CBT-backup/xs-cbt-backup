@@ -24,6 +24,7 @@ class CBTTests(object):
         self._host = host or pool_master
         self._username = username
         self._password = password
+        self._use_tls = use_tls
         self._session = self.create_session()
 
     # Create a session that won't be garbage-collected and maybe even logged
@@ -38,7 +39,7 @@ class CBTTests(object):
     def get_certfile(self):
         return self.run_ssh_command(
             ["xe", "host-get-server-certificate",
-             "--multiple"]).decode("utf-8")
+             "--multiple"]).decode("ascii")
 
     def create_session(self):
         import XenAPI
@@ -79,8 +80,12 @@ class CBTTests(object):
         vdi = self._session.xenapi.VDI.create(new_vdi_record)
         return vdi
 
-    def read_from_vdi(self, vdi=None):
+    def get_xapi_nbd_client(self, vdi):
         from xapi_nbd_client import xapi_nbd_client
+        return xapi_nbd_client(
+            vdi=vdi, session=self._session, use_tls=self._use_tls)
+
+    def read_from_vdi(self, vdi=None):
         import time
 
         if vdi is None:
@@ -90,7 +95,7 @@ class CBTTests(object):
         else:
             delete_vdi = False
 
-        c = xapi_nbd_client(vdi=vdi, session=self._session)
+        c = self.get_xapi_nbd_client(vdi=vdi)
 
         # This usually gives us some interesting text for the ISO VDIs :)
         # If we read from position 0 that's boring, we get all zeros
@@ -110,7 +115,6 @@ class CBTTests(object):
             self._session.xenapi.VDI.destroy(vdi)
 
     def loop_connect_disconnect(self, vdi=None, n=1000):
-        from xapi_nbd_client import xapi_nbd_client
         if vdi is None:
             vdi = self.create_test_vdi()
             delete_vdi = True
@@ -120,7 +124,7 @@ class CBTTests(object):
                 for i in range(n):
                     print("{}: connecting to {} on {}".format(
                         i, vdi, self._host))
-                    xapi_nbd_client(vdi=vdi, session=self._session)
+                    self.get_xapi_nbd_client(vdi=vdi)
             finally:
                 if delete_vdi:
                     self._session.xenapi.VDI.destroy(vdi)
@@ -128,8 +132,6 @@ class CBTTests(object):
             self._session.xenapi.session.logout()
 
     def parallel_nbd_connections(self, same_vdi=True, n=100):
-        from xapi_nbd_client import xapi_nbd_client
-
         # Stash the NBD clients here to avoid them being garbage collected
         # and disconnected immediately after creation :S.
         open_nbd_connections = []
@@ -148,7 +150,7 @@ class CBTTests(object):
                     print("{}: connecting to {} on {}".format(
                         i, vdi, self._host))
                     open_nbd_connections += [
-                        xapi_nbd_client(vdi=vdi, session=self._session)
+                        self.get_xapi_nbd_client(vdi=vdi)
                     ]
             finally:
                 for c in open_nbd_connections:
@@ -188,12 +190,10 @@ class CBTTests(object):
         self.read_from_vdi()
 
     def download_changed_blocks_in_bitmap_from_nbd(self, vdi, bitmap):
-
-        from xapi_nbd_client import xapi_nbd_client
         import base64
 
         bitmap = base64.b64decode(bitmap)
-        c = xapi_nbd_client(session=self._session, vdi=vdi)
+        c = self.get_xapi_nbd_client(vdi=vdi)
         print("Size of network block device: %s" % c.size())
         for i in range(0, len(bitmap) - 1):
             if bitmap[i] == 1:

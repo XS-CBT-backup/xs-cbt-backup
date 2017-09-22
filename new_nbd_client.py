@@ -49,7 +49,7 @@ class new_nbd_client(object):
     NBD_REQUEST_MAGIC = 0x25609513
     NBD_REPLY_MAGIC = 0x67446698
 
-    def __init__(self, host, export_name="", ca_cert=None, port=10809):
+    def __init__(self, host, export_name="", port=10809, ca_cert=None):
         print("Connecting to export '{}' on host '{}'"
               .format(export_name, host))
         self._flushed = True
@@ -77,7 +77,7 @@ class new_nbd_client(object):
         assert (len(data) == data_length)
         return data
 
-    def _send_option(self, option, data=[]):
+    def _send_option(self, option, data=b''):
         print("NBD sending option header")
         data_length = len(data)
         print("option='%d' data_length='%d'" % (option, data_length))
@@ -88,7 +88,7 @@ class new_nbd_client(object):
 
     def _parse_option_reply(self):
         print("NBD parsing option reply")
-        reply = self._s.recv(8 + 4 + 4)
+        reply = self._s.recv(8 + 4 + 4 + 4)
         (magic, option, reply_type, data_length) = struct.unpack(
             ">QLLL", reply)
         print("NBD reply magic='%x' option='%d' reply_type='%d'" %
@@ -101,14 +101,14 @@ class new_nbd_client(object):
 
     def _upgrade_socket_to_TLS(self):
         # Forcing the client to use TLSv1_2
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
         context.options &= ~ssl.OP_NO_TLSv1
         context.options &= ~ssl.OP_NO_TLSv1_1
         context.options &= ~ssl.OP_NO_SSLv2
         context.options &= ~ssl.OP_NO_SSLv3
         context.check_hostname = False
         context.verify_mode = ssl.CERT_REQUIRED
-        context.load_verify_locations(cafile=self.ca_cert)
+        context.load_verify_locations(cadata=self._ca_cert)
         cleartext_socket = self._s
         self._s = context.wrap_socket(
             cleartext_socket, server_side=False, do_handshake_on_connect=True)
