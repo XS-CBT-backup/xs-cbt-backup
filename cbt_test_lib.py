@@ -130,7 +130,7 @@ def parallel_nbd_connections(session, host, same_vdi=True, n=100):
                     vdis_created += [vdi]
                 print("{}: connecting to {} on {}".format(i, vdi, host))
                 open_nbd_connections += [
-                    xapi_nbd_client(host=host, vdi=vdi, session=session)
+                    xapi_nbd_client(vdi=vdi, session=session)
                 ]
         finally:
             for c in open_nbd_connections:
@@ -157,7 +157,7 @@ def control_xapi_nbd_service(host, service_command):
     run_ssh_command(host, ["service", "xapi-nbd", service_command])
 
 
-def verify_xapi_nbd_systemd_service(session, host):
+def verify_xapi_nbd_systemd_service(session, host, socket_activated=False):
     # Verify that the service is running & properly working
     # This will fail if the service isn't running
     control_xapi_nbd_service(host=host, service_command="status")
@@ -168,7 +168,7 @@ def verify_xapi_nbd_systemd_service(session, host):
         running = True
     except ConnectionRefusedError:
         running = False
-    assert (running is False)
+    assert (running == socket_activated)
     control_xapi_nbd_service(host=host, service_command="restart")
     read_from_vdi(session=session, host=host)
 

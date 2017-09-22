@@ -39,9 +39,9 @@ class CBTTests(object):
         cbt_test_lib.parallel_nbd_connections(
             session=self._session, host=self._host, same_vdi=same_vdi, n=n)
 
-    def verify_xapi_nbd_systemd_service(self):
+    def verify_xapi_nbd_systemd_service(self, socket_activated=False):
         cbt_test_lib.verify_xapi_nbd_systemd_service(
-            session=self._session, host=self._host)
+            session=self._session, host=self._host, socket_activated=socket_activated)
 
     def get_cbt_bitmap(self, vdi_from_uuid=None, vdi_to_uuid=None):
         if vdi_from_uuid is not None:
