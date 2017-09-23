@@ -28,7 +28,7 @@ class CBTTests(object):
         self._session = self.create_session()
 
     def __del__(self):
-        self.close()
+        self._session.xenapi.session.logout()
 
     # Create a session that won't be garbage-collected and maybe even logged
     # out after we printed the session ref for the user
