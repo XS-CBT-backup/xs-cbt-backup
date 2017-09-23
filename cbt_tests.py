@@ -27,6 +27,9 @@ class CBTTests(object):
         self._use_tls = use_tls
         self._session = self.create_session()
 
+    def __del__(self):
+        self.close()
+
     # Create a session that won't be garbage-collected and maybe even logged
     # out after we printed the session ref for the user
     def create_test_session(self):
@@ -83,15 +86,13 @@ class CBTTests(object):
         return xapi_nbd_client(
             vdi=vdi, session=self._session, use_tls=self._use_tls)
 
-    def read_from_vdi(self, vdi=None):
+    def _read_from_vdi(self, vdi=None, destroy_op=None, wait_after_disconnect=True):
         import time
 
         if vdi is None:
             print("Creating a VDI")
             vdi = self.create_test_vdi()
-            delete_vdi = True
-        else:
-            delete_vdi = False
+            destroy_op = destroy_op or self._session.xenapi.VDI.destroy
 
         c = self.get_xapi_nbd_client(vdi=vdi)
 
@@ -101,15 +102,34 @@ class CBTTests(object):
 
         c.close()
 
-        if delete_vdi:
-            # Wait for a bit for the cleanup actions (unplugging and destroying
-            # the VBD) to finish after terminating the NBD session.
-            # There is a race condition where we can get
-            # XenAPI.Failure: ['VDI_IN_USE', 'OpaqueRef:<VDI ref>', 'destroy']
-            # if we immediately call VDI.destroy after closing the NBD session,
-            # because the VBD has not yet been cleaned up.
-            time.sleep(2)
+        if destroy_op is not None:
+            if wait_after_disconnect:
+                # Wait for a bit for the cleanup actions (unplugging and destroying
+                # the VBD) to finish after terminating the NBD session.
+                # There is a race condition where we can get
+                # XenAPI.Failure: ['VDI_IN_USE', 'OpaqueRef:<VDI ref>', 'destroy']
+                # if we immediately call VDI.destroy after closing the NBD session,
+                # because the VBD has not yet been cleaned up.
+                time.sleep(2)
 
+            destroy_op(vdi)
+
+    def read_from_vdi(self, vdi=None, wait_after_disconnect=True):
+        destroy_op = self._session.VDI.
+        self.read_from_vdi(vdi=vdi, wait_after_disconnect=wait_after_disconnect)
+
+    def test_data_destroy(self, wait_after_disconnect=False):
+        vdi = self.create_test_vdi()
+        try:
+            self._session.xenapi.VDI.enable_cbt(vdi)
+            snapshot = self._session.xenapi.VDI.snapshot(vdi)
+            
+            try:
+                self.read_from_vdi(vdi=snapshot, destroy_op=self._session.xenapi.VDI.data_destroy, wait_after_disconnect=wait_after_disconnect)
+            finally:
+                # destroy the cbt_metadata VDI
+                self._session.xenapi.VDI.destroy(snapshot)
+        finally:
             self._session.xenapi.VDI.destroy(vdi)
 
     def loop_connect_disconnect(self, vdi=None, n=1000):
@@ -118,16 +138,13 @@ class CBTTests(object):
             delete_vdi = True
 
         try:
-            try:
-                for i in range(n):
-                    print("{}: connecting to {} on {}".format(
-                        i, vdi, self._host))
-                    self.get_xapi_nbd_client(vdi=vdi)
-            finally:
-                if delete_vdi:
-                    self._session.xenapi.VDI.destroy(vdi)
+            for i in range(n):
+                print("{}: connecting to {} on {}".format(
+                    i, vdi, self._host))
+                self.get_xapi_nbd_client(vdi=vdi)
         finally:
-            self._session.xenapi.session.logout()
+            if delete_vdi:
+                self._session.xenapi.VDI.destroy(vdi)
 
     def parallel_nbd_connections(self, same_vdi=True, n=100):
         # Stash the NBD clients here to avoid them being garbage collected
@@ -140,26 +157,23 @@ class CBTTests(object):
             vdis_created += [vdi]
 
         try:
-            try:
-                for i in range(n):
-                    if not same_vdi:
-                        vdi = self.create_test_vdi()
-                        vdis_created += [vdi]
-                    print("{}: connecting to {} on {}".format(
-                        i, vdi, self._host))
-                    open_nbd_connections += [
-                        self.get_xapi_nbd_client(vdi=vdi)
-                    ]
-            finally:
-                for c in open_nbd_connections:
-                    c.close()
-                print("Destroying {} VDIs".format(len(vdis_created)))
-                for vdi in vdis_created:
-                    print("Destroying VDI {}".format(vdi))
-                    self._session.xenapi.VDI.destroy(vdi)
-                    print("VDI destroyed")
+            for i in range(n):
+                if not same_vdi:
+                    vdi = self.create_test_vdi()
+                    vdis_created += [vdi]
+                print("{}: connecting to {} on {}".format(
+                    i, vdi, self._host))
+                open_nbd_connections += [
+                    self.get_xapi_nbd_client(vdi=vdi)
+                ]
         finally:
-            self._session.xenapi.session.logout()
+            for c in open_nbd_connections:
+                c.close()
+            print("Destroying {} VDIs".format(len(vdis_created)))
+            for vdi in vdis_created:
+                print("Destroying VDI {}".format(vdi))
+                self._session.xenapi.VDI.destroy(vdi)
+                print("VDI destroyed")
 
     def run_ssh_command(self, command):
         import subprocess
@@ -268,8 +282,11 @@ class CBTTestsCLI(object):
         vdi = self._cbt_tests.create_test_vdi(sr=sr)
         print(self._session.xenapi.VDI.get_uuid(vdi))
 
-    def read_from_vdi(self, vdi=None):
-        self._cbt_tests.read_from_vdi(vdi=vdi)
+    def read_from_vdi(self, vdi=None, wait_after_disconnect=True):
+        self._cbt_tests.read_from_vdi(vdi=vdi, wait_after_disconnect=wait_after_disconnect)
+
+    def test_data_destroy(self, wait_after_disconnect=False):
+        self._cbt_tests.test_data_destroy(wait_after_disconnect=wait_after_disconnect)
 
     def loop_connect_disconnect(self, vdi=None, n=1000):
         self._cbt_tests.loop_connect_disconnect(vdi=vdi, n=n)
