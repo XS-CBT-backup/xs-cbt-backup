@@ -37,9 +37,7 @@ class CBTTests(object):
         return session
 
     def get_certfile(self):
-        return self.run_ssh_command(
-            ["xe", "host-get-server-certificate",
-             "--multiple"]).decode("ascii")
+        return self._session.xenapi.host.get_server_certificate(self._host)
 
     def create_session(self):
         import XenAPI
