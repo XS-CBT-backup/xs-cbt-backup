@@ -132,7 +132,10 @@ class CBTTests(object):
         finally:
             self._session.xenapi.VDI.destroy(vdi)
 
-    def loop_connect_disconnect(self, vdi=None, n=1000):
+    def loop_connect_disconnect(self, vdi=None, n=1000, random_delays=False):
+        import time
+        import random
+
         if vdi is None:
             vdi = self.create_test_vdi()
             delete_vdi = True
@@ -141,7 +144,12 @@ class CBTTests(object):
             for i in range(n):
                 print("{}: connecting to {} on {}".format(
                     i, vdi, self._host))
-                self.get_xapi_nbd_client(vdi=vdi)
+                c = self.get_xapi_nbd_client(vdi=vdi)
+                if random_delays:
+                    time.sleep(random.random())
+                c.close()
+                if random_delays:
+                    time.sleep(random.random())
         finally:
             if delete_vdi:
                 self._session.xenapi.VDI.destroy(vdi)
@@ -288,8 +296,8 @@ class CBTTestsCLI(object):
     def test_data_destroy(self, wait_after_disconnect=False):
         self._cbt_tests.test_data_destroy(wait_after_disconnect=wait_after_disconnect)
 
-    def loop_connect_disconnect(self, vdi=None, n=1000):
-        self._cbt_tests.loop_connect_disconnect(vdi=vdi, n=n)
+    def loop_connect_disconnect(self, vdi=None, n=1000, random_delays=False):
+        self._cbt_tests.loop_connect_disconnect(vdi=vdi, n=n, random_delays=random_delays)
 
     def parallel_nbd_connections(self, same_vdi=True, n=100):
         self._cbt_tests.parallel_nbd_connections(same_vdi=same_vdi, n=n)
