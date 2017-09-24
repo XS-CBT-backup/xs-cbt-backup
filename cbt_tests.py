@@ -289,6 +289,18 @@ class CBTTests(object):
         else:
             return self.write_blocks_consecutively(blocks, output_file)
 
+    def download_whole_vdi_using_nbd(self, vdi, filename):
+        with open(filename, 'ab') as out:
+            c = self.get_xapi_nbd_client(vdi=vdi)
+            # download 4MiB chunks
+            chunk_size = 4 * 1024 * 1024
+            for offset in range(0, c.size(), chunk_size):
+                length = min(chunk_size, c.size() - offset)
+                c.read(offset, length)
+                out.seek(offset)
+                out.write(length)
+            c.close()
+
 
 class CBTTestsCLI(object):
     def __init__(self,
