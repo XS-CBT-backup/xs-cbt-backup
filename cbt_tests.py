@@ -273,7 +273,6 @@ class CBTTests(object):
         return out.name
 
     def overwrite_changed_blocks(self, changed_blocks, output_file):
-        import tempfile
         with open(output_file, 'wb') as out:
             for (offset, block) in changed_blocks:
                 out.seek(offset)
@@ -289,17 +288,23 @@ class CBTTests(object):
         else:
             return self.write_blocks_consecutively(blocks, output_file)
 
-    def download_whole_vdi_using_nbd(self, vdi, filename):
-        with open(filename, 'ab') as out:
-            c = self.get_xapi_nbd_client(vdi=vdi)
-            # download 4MiB chunks
-            chunk_size = 4 * 1024 * 1024
-            for offset in range(0, c.size(), chunk_size):
-                length = min(chunk_size, c.size() - offset)
-                c.read(offset, length)
-                out.seek(offset)
-                out.write(length)
-            c.close()
+    def download_whole_vdi_using_nbd(self, vdi, filename=None):
+        import tempfile
+
+        c = self.get_xapi_nbd_client(vdi=vdi)
+        if filename is None:
+            out = tempfile.NamedTemporaryFile('ab')
+        else:
+            out = open(filename, 'ab')
+        # download 4MiB chunks
+        chunk_size = 4 * 1024 * 1024
+        for offset in range(0, c.size(), chunk_size):
+            length = min(chunk_size, c.size() - offset)
+            c.read(offset, length)
+            out.seek(offset)
+            out.write(length)
+        out.close()
+        c.close()
 
 
 class CBTTestsCLI(object):
@@ -364,7 +369,8 @@ class CBTTestsCLI(object):
     def save_changed_blocks(self,
                             vdi_from_uuid=None,
                             vdi_to_uuid=None,
-                            output_file=None):
+                            output_file=None,
+                            overwrite_changed_blocks=True):
         if vdi_from_uuid is not None:
             vdi_from = self._session.xenapi.VDI.get_by_uuid(vdi_from_uuid)
         else:
@@ -374,7 +380,11 @@ class CBTTestsCLI(object):
         else:
             vdi_to = None
         return self._cbt_tests.save_changed_blocks(
-            vdi_from=vdi_from, vdi_to=vdi_to, output_file=output_file)
+            vdi_from=vdi_from, vdi_to=vdi_to, output_file=output_file, overwrite_changed_blocks=overwrite_changed_blocs)
+
+    def download_whole_vdi_using_nbd(self, vdi, filename=None):
+        vdi = self._session.xenapi.VDI.get_by_uuid(vdi)
+        self._cbt_tests.download_whole_vdi_using_nbd(vdi=vdi, filename=filename)
 
     def get_certfile(self):
         print(self._cbt_tests.get_certfile())
