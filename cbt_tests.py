@@ -238,7 +238,7 @@ class CBTTests(object):
                 print("Reading %d bytes from offset %d" % (self.BLOCK_SIZE,
                                                            offset))
                 data = c.read(offset=offset, length=self.BLOCK_SIZE)
-                yield data
+                yield (offset, data)
         c.close()
 
     def get_cbt_bitmap(self, vdi_from=None, vdi_to=None):
@@ -267,15 +267,27 @@ class CBTTests(object):
             out = tempfile.NamedTemporaryFile('ab')
         else:
             out = open(output_file, 'ab')
-        for b in changed_blocks:
+        for (o, b) in changed_blocks:
             out.write(b)
         out.close()
         return out.name
 
+    def overwrite_changed_blocks(self, changed_blocks, output_file):
+        import tempfile
+        with open(output_file, 'wb') as out:
+            for (offset, block) in changed_blocks:
+                out.seek(offset)
+                out.write(block)
+
     def save_changed_blocks(self, vdi_from=None, vdi_to=None,
-                            output_file=None):
+                            output_file=None, overwrite_changed_blocks=True):
         blocks = self.download_changed_blocks(vdi_from=vdi_from, vdi_to=vdi_to)
-        return self.write_blocks_consecutively(blocks, output_file)
+
+        overwrite_changed_blocks = (output_file is not None) and overwrite_changed_blocks
+        if overwrite_changed_blocks:
+            self.overwrite_changed_blocks(blocks, output_file)
+        else:
+            return self.write_blocks_consecutively(blocks, output_file)
 
 
 class CBTTestsCLI(object):
