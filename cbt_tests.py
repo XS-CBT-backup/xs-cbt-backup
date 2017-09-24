@@ -132,6 +132,23 @@ class CBTTests(object):
         finally:
             self._session.xenapi.VDI.destroy(vdi)
 
+    def test_nbd_server_unplugs_vbds(self):
+        vdi = self.create_test_vdi()
+        vbds = self._session.xenapi.VDI.get_VBDs(vdi)
+        assert(len(vbds) == 0)
+        try:
+            c = self.get_xapi_nbd_client(vdi=vdi)
+            vbds = self._session.xenapi.VDI.get_VBDs(vdi)
+            assert(len(vbds) == 1)
+            self.control_xapi_nbd_service("stop")
+            try:
+                vbds = self._session.xenapi.VDI.get_VBDs(vdi)
+                assert(len(vbds) == 0)
+            finally:
+                self.control_xapi_nbd_service("start")
+        finally:
+            self._session.xenapi.VDI.destroy(vdi)
+
     def loop_connect_disconnect(self, vdi=None, n=1000, random_delays=False):
         import time
         import random
@@ -295,6 +312,9 @@ class CBTTestsCLI(object):
 
     def test_data_destroy(self, wait_after_disconnect=False):
         self._cbt_tests.test_data_destroy(wait_after_disconnect=wait_after_disconnect)
+
+    def test_nbd_server_unplugs_vbds(self):
+        self._cbt_tests.test_nbd_server_unplugs_vbds()
 
     def loop_connect_disconnect(self, vdi=None, n=1000, random_delays=False):
         self._cbt_tests.loop_connect_disconnect(vdi=vdi, n=n, random_delays=random_delays)
