@@ -180,6 +180,8 @@ class CBTTests(object):
         self._session.xenapi.VDI.destroy(vdi)
 
     def test_nbd_server_unplugs_vbds(self):
+        import time
+
         vdi = self.create_test_vdi()
         vbds = self._session.xenapi.VDI.get_VBDs(vdi)
         assert (len(vbds) == 0)
@@ -195,6 +197,16 @@ class CBTTests(object):
             finally:
                 self.control_xapi_nbd_service("start")
         finally:
+            # Wait for a bit for the cleanup actions (unplugging and
+            # destroying the VBD) to finish after terminating the NBD
+            # session.
+            # There is a race condition where we can get
+            # XenAPI.Failure:
+            #  ['VDI_IN_USE', 'OpaqueRef:<VDI ref>', 'destroy']
+            # if we immediately call VDI.destroy after closing the NBD
+            # session, because the VBD has not yet been cleaned up.
+            time.sleep(2)
+
             self._session.xenapi.VDI.destroy(vdi)
 
     def loop_connect_disconnect(self, vdi=None, n=1000, random_delays=False):
