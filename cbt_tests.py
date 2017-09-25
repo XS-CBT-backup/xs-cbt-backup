@@ -124,6 +124,8 @@ class CBTTests(object):
             vdi=vdi, wait_after_disconnect=wait_after_disconnect)
 
     def test_data_destroy(self, wait_after_disconnect=False):
+        import time
+
         vdi = self.create_test_vdi()
         try:
             self._session.xenapi.VDI.enable_cbt(vdi)
@@ -135,13 +137,27 @@ class CBTTests(object):
                     destroy_op=self._session.xenapi.VDI.data_destroy,
                     wait_after_disconnect=wait_after_disconnect)
             finally:
-                # destroy the cbt_metadata VDI
+                # Wait for a bit for the cleanup actions (unplugging and
+                # destroying the VBD) to finish after terminating the NBD
+                # session.
+                # There is a race condition where we can get
+                # XenAPI.Failure:
+                #  ['VDI_IN_USE', 'OpaqueRef:<VDI ref>', 'destroy']
+                # if we immediately call VDI.destroy after closing the NBD
+                # session, because the VBD has not yet been cleaned up.
+                time.sleep(2)
+
+                # Destroy the cbt_metadata VDI
                 self._session.xenapi.VDI.destroy(snapshot)
         finally:
+            # First wait for the unplug to finish, because there is a race
+            # between VBD.unplug on the snapshot and VDI.destroy on the
+            # snapshotted VDI:
+            time.sleep(2)
             self._session.xenapi.VDI.destroy(vdi)
 
     def repro_sm_bug(self):
-        import time
+        # import time
 
         vdi = self.create_test_vdi()
         print(self._session.xenapi.VDI.get_uuid(vdi))
