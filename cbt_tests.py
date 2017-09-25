@@ -140,6 +140,29 @@ class CBTTests(object):
         finally:
             self._session.xenapi.VDI.destroy(vdi)
 
+    def repro_sm_bug(self):
+        import time
+
+        vdi = self.create_test_vdi()
+        print(self._session.xenapi.VDI.get_uuid(vdi))
+        # Without this line, if we do not enable CBT, it works:
+        self._session.xenapi.VDI.enable_cbt(vdi)
+        snapshot = self._session.xenapi.VDI.snapshot(vdi)
+        print(self._session.xenapi.VDI.get_uuid(snapshot))
+
+        c = self.get_xapi_nbd_client(vdi=snapshot)
+        print(c.read(512 * 200, 512))
+        # If we run the VDI.destroy here it will work:
+        # self._session.xenapi.VDI.destroy(vdi)
+        c.close()
+
+        # It also works if we first wait for the unplug to finish, so probably
+        # this is a race between VBD.unplug on the snapshot and VDI.destroy on
+        # the snapshotted VDI:
+        # time.sleep(2)
+
+        self._session.xenapi.VDI.destroy(vdi)
+
     def test_nbd_server_unplugs_vbds(self):
         vdi = self.create_test_vdi()
         vbds = self._session.xenapi.VDI.get_VBDs(vdi)
@@ -406,6 +429,9 @@ class CBTTestsCLI(object):
 
     def get_certfile(self):
         print(self._cbt_tests.get_certfile())
+
+    def repro_sm_bug(self):
+        self._cbt_tests.repro_sm_bug()
 
 
 if __name__ == '__main__':
