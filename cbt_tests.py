@@ -188,9 +188,9 @@ class CBTTests(object):
         import time
 
         vdi = self.create_test_vdi()
-        vbds = self._session.xenapi.VDI.get_VBDs(vdi)
-        assert (len(vbds) == 0)
         try:
+            vbds = self._session.xenapi.VDI.get_VBDs(vdi)
+            assert (len(vbds) == 0)
             c = self.get_xapi_nbd_client(vdi=vdi)
             c.close()
             vbds = self._session.xenapi.VDI.get_VBDs(vdi)
