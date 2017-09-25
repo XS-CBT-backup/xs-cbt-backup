@@ -189,7 +189,7 @@ class CBTTests(object):
 
         self._session.xenapi.VDI.destroy(vdi)
 
-    def test_nbd_server_unplugs_vbds(self):
+    def _test_nbd_server_cleans_up_vbds(self, terminate_command):
         import time
 
         vdi = self.create_test_vdi()
@@ -200,14 +200,20 @@ class CBTTests(object):
             c.close()
             vbds = self._session.xenapi.VDI.get_VBDs(vdi)
             assert (len(vbds) == 1)
-            self.control_xapi_nbd_service("stop")
+            self.control_xapi_nbd_service(terminate_command)
             try:
+                # wait for a while for the cleanup to finish
+                time.sleep(2)
                 vbds = self._session.xenapi.VDI.get_VBDs(vdi)
                 assert (len(vbds) == 0)
             finally:
                 self.control_xapi_nbd_service("start")
         finally:
             self._destroy_vdi_after_nbd_disconnect(vdi=vdi)
+
+    def test_nbd_server_cleans_up_vbds(self):
+        self._test_nbd_server_cleans_up_vbds("start")
+        self._test_nbd_server_cleans_up_vbds("restart")
 
     def loop_connect_disconnect(self, vdi=None, n=1000, random_delays=False):
         import time
@@ -423,8 +429,8 @@ class CBTTestsCLI(object):
         self._cbt_tests.test_data_destroy(
             wait_after_disconnect=wait_after_disconnect)
 
-    def test_nbd_server_unplugs_vbds(self):
-        self._cbt_tests.test_nbd_server_unplugs_vbds()
+    def test_nbd_server_cleans_up_vbds(self):
+        self._cbt_tests.test_nbd_server_cleans_up_vbds()
 
     def loop_connect_disconnect(self, vdi=None, n=1000, random_delays=False):
         self._cbt_tests.loop_connect_disconnect(
