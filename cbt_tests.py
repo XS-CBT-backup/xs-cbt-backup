@@ -115,8 +115,7 @@ class CBTTests(object):
             destroy_op(vdi)
 
     def read_from_vdi(self, vdi=None, wait_after_disconnect=True):
-        destroy_op = self._session.VDI.
-        self.read_from_vdi(vdi=vdi, wait_after_disconnect=wait_after_disconnect)
+        self._read_from_vdi(vdi=vdi, wait_after_disconnect=wait_after_disconnect)
 
     def test_data_destroy(self, wait_after_disconnect=False):
         vdi = self.create_test_vdi()
@@ -264,7 +263,7 @@ class CBTTests(object):
     def write_blocks_consecutively(self, changed_blocks, output_file=None):
         import tempfile
         if output_file is None:
-            out = tempfile.NamedTemporaryFile('ab')
+            out = tempfile.NamedTemporaryFile('ab', delete=False)
         else:
             out = open(output_file, 'ab')
         for (o, b) in changed_blocks:
@@ -293,18 +292,20 @@ class CBTTests(object):
 
         c = self.get_xapi_nbd_client(vdi=vdi)
         if filename is None:
-            out = tempfile.NamedTemporaryFile('ab')
+            out = tempfile.NamedTemporaryFile('ab', delete=False)
         else:
             out = open(filename, 'ab')
-        # download 4MiB chunks
-        chunk_size = 4 * 1024 * 1024
+        # download 40MiB chunks
+        chunk_size = 40 * 1024 * 1024
         for offset in range(0, c.size(), chunk_size):
             length = min(chunk_size, c.size() - offset)
-            c.read(offset, length)
+            chunk = c.read(offset, length)
+            print("Fetched chunk of length: {}".format(len(chunk)))
             out.seek(offset)
-            out.write(length)
+            out.write(chunk)
         out.close()
         c.close()
+        return out.name
 
 
 class CBTTestsCLI(object):
@@ -384,7 +385,7 @@ class CBTTestsCLI(object):
 
     def download_whole_vdi_using_nbd(self, vdi, filename=None):
         vdi = self._session.xenapi.VDI.get_by_uuid(vdi)
-        self._cbt_tests.download_whole_vdi_using_nbd(vdi=vdi, filename=filename)
+        return self._cbt_tests.download_whole_vdi_using_nbd(vdi=vdi, filename=filename)
 
     def get_certfile(self):
         print(self._cbt_tests.get_certfile())
