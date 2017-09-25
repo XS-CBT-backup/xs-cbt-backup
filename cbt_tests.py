@@ -14,6 +14,8 @@ class CBTTests(object):
     # 64K blocks
     BLOCK_SIZE = 64 * 1024
 
+    TEST_VDI_NAME = "test_" + program_name
+
     def __init__(self,
                  pool_master,
                  username,
@@ -28,6 +30,7 @@ class CBTTests(object):
         self._session = self.create_session()
 
     def __del__(self):
+        self.cleanup_test_vdis()
         self._session.xenapi.session.logout()
 
     # Create a session that won't be garbage-collected and maybe even logged
@@ -76,7 +79,7 @@ class CBTTests(object):
             "sharable": False,
             "read_only": False,
             "other_config": {},
-            "name_label": "test"
+            "name_label": self.TEST_VDI_NAME
         }
         vdi = self._session.xenapi.VDI.create(new_vdi_record)
         return vdi
@@ -86,12 +89,33 @@ class CBTTests(object):
         return xapi_nbd_client(
             vdi=vdi, session=self._session, use_tls=self._use_tls)
 
+    def _destroy_vdi_after_nbd_disconnect(self,
+                                          vdi,
+                                          destroy_op=None,
+                                          wait_after_disconnect=False):
+        import time
+
+        if destroy_op is None:
+            destroy_op = self._session.xenapi.VDI.destroy
+            wait_after_disconnect = True
+
+        if wait_after_disconnect:
+            # Wait for a bit for the cleanup actions (unplugging and
+            # destroying the VBD) to finish after terminating the NBD
+            # session.
+            # There is a race condition where we can get
+            # XenAPI.Failure:
+            #  ['VDI_IN_USE', 'OpaqueRef:<VDI ref>', 'destroy']
+            # if we immediately call VDI.destroy after closing the NBD
+            # session, because the VBD has not yet been cleaned up.
+            time.sleep(2)
+
+        destroy_op(vdi)
+
     def _read_from_vdi(self,
                        vdi=None,
                        destroy_op=None,
                        wait_after_disconnect=True):
-        import time
-
         if vdi is None:
             print("Creating a VDI")
             vdi = self.create_test_vdi()
@@ -106,18 +130,10 @@ class CBTTests(object):
         c.close()
 
         if destroy_op is not None:
-            if wait_after_disconnect:
-                # Wait for a bit for the cleanup actions (unplugging and
-                # destroying the VBD) to finish after terminating the NBD
-                # session.
-                # There is a race condition where we can get
-                # XenAPI.Failure:
-                #  ['VDI_IN_USE', 'OpaqueRef:<VDI ref>', 'destroy']
-                # if we immediately call VDI.destroy after closing the NBD
-                # session, because the VBD has not yet been cleaned up.
-                time.sleep(2)
-
-            destroy_op(vdi)
+            self._destroy_vdi_after_nbd_disconnect(
+                vdi=vdi,
+                destroy_op=destroy_op,
+                wait_after_disconnect=wait_after_disconnect)
 
     def read_from_vdi(self, vdi=None, wait_after_disconnect=True):
         self._read_from_vdi(
@@ -137,18 +153,7 @@ class CBTTests(object):
                     destroy_op=self._session.xenapi.VDI.data_destroy,
                     wait_after_disconnect=wait_after_disconnect)
             finally:
-                # Wait for a bit for the cleanup actions (unplugging and
-                # destroying the VBD) to finish after terminating the NBD
-                # session.
-                # There is a race condition where we can get
-                # XenAPI.Failure:
-                #  ['VDI_IN_USE', 'OpaqueRef:<VDI ref>', 'destroy']
-                # if we immediately call VDI.destroy after closing the NBD
-                # session, because the VBD has not yet been cleaned up.
-                time.sleep(2)
-
-                # Destroy the cbt_metadata VDI
-                self._session.xenapi.VDI.destroy(snapshot)
+                self._destroy_vdi_after_nbd_disconnect(vdi=snapshot)
         finally:
             # First wait for the unplug to finish, because there is a race
             # between VBD.unplug on the snapshot and VDI.destroy on the
@@ -197,17 +202,7 @@ class CBTTests(object):
             finally:
                 self.control_xapi_nbd_service("start")
         finally:
-            # Wait for a bit for the cleanup actions (unplugging and
-            # destroying the VBD) to finish after terminating the NBD
-            # session.
-            # There is a race condition where we can get
-            # XenAPI.Failure:
-            #  ['VDI_IN_USE', 'OpaqueRef:<VDI ref>', 'destroy']
-            # if we immediately call VDI.destroy after closing the NBD
-            # session, because the VBD has not yet been cleaned up.
-            time.sleep(2)
-
-            self._session.xenapi.VDI.destroy(vdi)
+            self._destroy_vdi_after_nbd_disconnect(vdi=vdi)
 
     def loop_connect_disconnect(self, vdi=None, n=1000, random_delays=False):
         import time
@@ -228,9 +223,11 @@ class CBTTests(object):
                     time.sleep(random.random())
         finally:
             if delete_vdi:
-                self._session.xenapi.VDI.destroy(vdi)
+                self._destroy_vdi_after_nbd_disconnect(vdi)
 
     def parallel_nbd_connections(self, same_vdi=True, n=100):
+        import time
+
         # Stash the NBD clients here to avoid them being garbage collected
         # and disconnected immediately after creation :S.
         open_nbd_connections = []
@@ -248,6 +245,7 @@ class CBTTests(object):
                 print("{}: connecting to {} on {}".format(i, vdi, self._host))
                 open_nbd_connections += [self.get_xapi_nbd_client(vdi=vdi)]
         finally:
+            time.sleep(2)
             for c in open_nbd_connections:
                 c.close()
             print("Destroying {} VDIs".format(len(vdis_created)))
@@ -368,6 +366,18 @@ class CBTTests(object):
         c.close()
         return out.name
 
+    def cleanup_test_vdis(self):
+        for vdi in self._session.xenapi.VDI.get_by_name_label(self.TEST_VDI_NAME):
+            vdi_uuid = self._session.xenapi.VDI.get_uuid(vdi)
+            for vbd in self._session.xenapi.VDI.get_VBDs(vdi):
+                vbd_uuid = self._session.xenapi.VBD.get_uuid(vbd)
+                print("Unplugging VBD {} of VDI {}".format(vbd_uuid, vdi_uuid))
+            print("Destroying VDI {}".format(vdi_uuid))
+            try:
+                self._session.xenapi.VDI.destroy(vdi)
+            except:
+                print("Failed to destroy VDI {}".format(vdi_uuid))
+
 
 class CBTTestsCLI(object):
     def __init__(self,
@@ -460,6 +470,9 @@ class CBTTestsCLI(object):
 
     def repro_sm_bug(self):
         self._cbt_tests.repro_sm_bug()
+
+    def cleanup_test_vdis(self):
+        self._cbt_tests.cleanup_test_vdis()
 
 
 if __name__ == '__main__':
