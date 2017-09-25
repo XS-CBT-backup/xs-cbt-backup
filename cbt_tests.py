@@ -14,7 +14,8 @@ class CBTTests(object):
     # 64K blocks
     BLOCK_SIZE = 64 * 1024
 
-    TEST_VDI_NAME = "test_" + program_name
+    TEMPORARY_TEST_VDI_NAME = "TMP_test_" + program_name
+    TEST_VDI_NAME = "test"
 
     def __init__(self,
                  pool_master,
@@ -42,8 +43,13 @@ class CBTTests(object):
                                                 self._password)['Value']
         return session
 
+    def _get_host(self):
+        hostname = (self._host).partition('.')[0]
+        [host_ref] = self._session.xenapi.host.get_by_name_label(hostname)
+        return host_ref
+
     def get_certfile(self):
-        return self._session.xenapi.host.get_server_certificate(self._host)
+        return self._session.xenapi.host.get_server_certificate(self._get_host())
 
     def create_session(self):
         import XenAPI
@@ -52,13 +58,12 @@ class CBTTests(object):
                                            "1.0", program_name)
         return session
 
-    def create_test_vdi(self, sr=None):
+    def create_test_vdi(self, sr=None, keep_after_exit=False):
         print("Creating a VDI")
         if sr is None:
             # Get an SR that is only attached to this host (not shared), for
             # testing local SRs
-            hostname = (self._host).partition('.')[0]
-            [host_ref] = self._session.xenapi.host.get_by_name_label(hostname)
+            host_ref = self._get_host()
             pbds = self._session.xenapi.host.get_PBDs(host_ref)
             srs = [
                 self._session.xenapi.PBD.get_SR(pbd) for pbd in pbds
@@ -79,7 +84,7 @@ class CBTTests(object):
             "sharable": False,
             "read_only": False,
             "other_config": {},
-            "name_label": self.TEST_VDI_NAME
+            "name_label": (self.TEST_VDI_NAME if keep_after_exit else self.TEMPORARY_TEST_VDI_NAME)
         }
         vdi = self._session.xenapi.VDI.create(new_vdi_record)
         return vdi
@@ -369,7 +374,7 @@ class CBTTests(object):
     def cleanup_test_vdis(self):
         import time
         time.sleep(2)
-        for vdi in self._session.xenapi.VDI.get_by_name_label(self.TEST_VDI_NAME):
+        for vdi in self._session.xenapi.VDI.get_by_name_label(self.TEMPORARY_TEST_VDI_NAME):
             vdi_uuid = self._session.xenapi.VDI.get_uuid(vdi)
             for vbd in self._session.xenapi.VDI.get_VBDs(vdi):
                 vbd_uuid = self._session.xenapi.VBD.get_uuid(vbd)
@@ -407,7 +412,7 @@ class CBTTestsCLI(object):
         print(session)
 
     def create_test_vdi(self, sr=None):
-        vdi = self._cbt_tests.create_test_vdi(sr=sr)
+        vdi = self._cbt_tests.create_test_vdi(sr=sr, keep_after_exit=True)
         print(self._session.xenapi.VDI.get_uuid(vdi))
 
     def read_from_vdi(self, vdi=None, wait_after_disconnect=True):
