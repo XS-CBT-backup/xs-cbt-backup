@@ -367,6 +367,8 @@ class CBTTests(object):
         return out.name
 
     def cleanup_test_vdis(self):
+        import time
+        time.sleep(2)
         for vdi in self._session.xenapi.VDI.get_by_name_label(self.TEST_VDI_NAME):
             vdi_uuid = self._session.xenapi.VDI.get_uuid(vdi)
             for vbd in self._session.xenapi.VDI.get_VBDs(vdi):
