@@ -108,7 +108,7 @@ class CBTTests(object):
             #  ['VDI_IN_USE', 'OpaqueRef:<VDI ref>', 'destroy']
             # if we immediately call VDI.destroy after closing the NBD
             # session, because the VBD has not yet been cleaned up.
-            time.sleep(4)
+            time.sleep(5)
 
         destroy_op(vdi)
 
