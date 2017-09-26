@@ -212,7 +212,7 @@ class CBTTests(object):
             self._destroy_vdi_after_nbd_disconnect(vdi=vdi)
 
     def test_nbd_server_cleans_up_vbds(self):
-        self._test_nbd_server_cleans_up_vbds("start")
+        self._test_nbd_server_cleans_up_vbds("stop")
         self._test_nbd_server_cleans_up_vbds("restart")
 
     def loop_connect_disconnect(self, vdi=None, n=1000, random_delays=False):
