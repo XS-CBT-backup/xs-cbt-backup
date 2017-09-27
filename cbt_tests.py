@@ -49,7 +49,8 @@ class CBTTests(object):
         return host_ref
 
     def get_certfile(self):
-        return self._session.xenapi.host.get_server_certificate(self._get_host())
+        return self._session.xenapi.host.get_server_certificate(
+            self._get_host())
 
     def create_session(self):
         import XenAPI
@@ -78,13 +79,19 @@ class CBTTests(object):
             sr = get_first_safely(user_srs)
 
         new_vdi_record = {
-            "SR": sr,
-            "virtual_size": 40000000,
-            "type": "user",
-            "sharable": False,
-            "read_only": False,
+            "SR":
+            sr,
+            "virtual_size":
+            40000000,
+            "type":
+            "user",
+            "sharable":
+            False,
+            "read_only":
+            False,
             "other_config": {},
-            "name_label": (self.TEST_VDI_NAME if keep_after_exit else self.TEMPORARY_TEST_VDI_NAME)
+            "name_label": (self.TEST_VDI_NAME if keep_after_exit else
+                           self.TEMPORARY_TEST_VDI_NAME)
         }
         vdi = self._session.xenapi.VDI.create(new_vdi_record)
         return vdi
@@ -189,7 +196,8 @@ class CBTTests(object):
 
         self._session.xenapi.VDI.destroy(vdi)
 
-    def _test_nbd_server_cleans_up_vbds(self, terminate_command):
+    def _test_nbd_server_cleans_up_vbds(self, terminate_while_client_connected,
+                                        terminate_command):
         import time
 
         vdi = self.create_test_vdi()
@@ -197,13 +205,14 @@ class CBTTests(object):
             vbds = self._session.xenapi.VDI.get_VBDs(vdi)
             assert (len(vbds) == 0)
             c = self.get_xapi_nbd_client(vdi=vdi)
-            c.close()
+            if not terminate_while_client_connected:
+                c.close()
             vbds = self._session.xenapi.VDI.get_VBDs(vdi)
             assert (len(vbds) == 1)
             self.control_xapi_nbd_service(terminate_command)
             try:
                 # wait for a while for the cleanup to finish
-                time.sleep(2)
+                time.sleep(8)
                 vbds = self._session.xenapi.VDI.get_VBDs(vdi)
                 assert (len(vbds) == 0)
             finally:
@@ -212,8 +221,8 @@ class CBTTests(object):
             self._destroy_vdi_after_nbd_disconnect(vdi=vdi)
 
     def test_nbd_server_cleans_up_vbds(self):
-        self._test_nbd_server_cleans_up_vbds("stop")
-        self._test_nbd_server_cleans_up_vbds("restart")
+        self._test_nbd_server_cleans_up_vbds(False, "stop")
+        self._test_nbd_server_cleans_up_vbds(True, "restart")
 
     def loop_connect_disconnect(self, vdi=None, n=1000, random_delays=False):
         import time
@@ -380,7 +389,8 @@ class CBTTests(object):
     def cleanup_test_vdis(self):
         import time
         time.sleep(2)
-        for vdi in self._session.xenapi.VDI.get_by_name_label(self.TEMPORARY_TEST_VDI_NAME):
+        for vdi in self._session.xenapi.VDI.get_by_name_label(
+                self.TEMPORARY_TEST_VDI_NAME):
             vdi_uuid = self._session.xenapi.VDI.get_uuid(vdi)
             for vbd in self._session.xenapi.VDI.get_VBDs(vdi):
                 vbd_uuid = self._session.xenapi.VBD.get_uuid(vbd)
