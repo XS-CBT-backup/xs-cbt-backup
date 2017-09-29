@@ -155,6 +155,8 @@ class CBTTests(object):
         import time
 
         vdi = self.create_test_vdi()
+        vbds = self._session.xenapi.VDI.get_VBDs(vdi)
+        assert (len(vbds) == 0)
         try:
             self._session.xenapi.VDI.enable_cbt(vdi)
             snapshot = self._session.xenapi.VDI.snapshot(vdi)
@@ -164,6 +166,9 @@ class CBTTests(object):
                     vdi=snapshot,
                     destroy_op=self._session.xenapi.VDI.data_destroy,
                     wait_after_disconnect=wait_after_disconnect)
+                vbds = self._session.xenapi.VDI.get_VBDs(vdi)
+                # a cbt_metadata VDI should have no VBDs
+                assert (len(vbds) == 0)
             finally:
                 self._destroy_vdi_after_nbd_disconnect(vdi=snapshot)
         finally:
