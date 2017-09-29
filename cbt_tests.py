@@ -429,6 +429,7 @@ class CBTTestsCLI(object):
 
     def create_test_vdi(self, sr=None):
         vdi = self._cbt_tests.create_test_vdi(sr=sr, keep_after_exit=True)
+        print(vdi)
         print(self._session.xenapi.VDI.get_uuid(vdi))
 
     def read_from_vdi(self, vdi=None, wait_after_disconnect=True):
