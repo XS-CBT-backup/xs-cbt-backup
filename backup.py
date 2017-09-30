@@ -11,16 +11,16 @@ class Backup:
     def __init__(self, pool_master=None, username=None, password=None, vm_uuid=None, use_tls=True):
         import urllib
 
-        self._cbt_lib = CBTTests(pool_master=pool_master, username=username, password=password, use_tls=True)
-        self._session = self._cbt_lib._session
-
         self.init_backup_dir()
 
         pool_master = pool_master or self.guess_pool_master()
         self._pool_master = pool_master
         self._pool_master_dir = self._backup_dir / urllib.parse.quote(pool_master)
 
-        vm_uuid = vm_uuid or guess_vm_uuid()
+        self._cbt_lib = CBTTests(pool_master=pool_master, username=username, password=password, use_tls=True)
+        self._session = self._cbt_lib._session
+
+        vm_uuid = vm_uuid or self.guess_vm_uuid()
         [self._vm] = self._session.xenapi.VM.get_by_uuid(vm_uuid)
         self._vm_dir = self._pool_master_dir / vm_uuid
 
@@ -48,6 +48,32 @@ class Backup:
         backups = self.get_backups_from_newest_to_oldest()
         return backups[0] if backups else None
 
+    def enable_cbt(self):
+        for vdi in self._session.xenapi.VM.get_VDIs(self._vm):
+            self._session.xenapi.VDI.enable_cbt(vdi)
+
+    def full_backup(self):
+        import datetime
+
+        snapshot = self._session.xenapi.VM.snapshot(self._vm)
+
+        # don't use characters that are invalid in filenames
+        now = datetime.datetime.utcnow().isoformat().strftime("%Y%m%d%H%M%S")
+        backup_dir = self._vm_dir / now
+        for vdi in self._session.xenapi.VM.get_VDIs(snapshot):
+            vdi_uuid = self._session.xenapi.VDI.get_uuid(vdi)
+            path = backup_dir / vdi_uuid
+            self._cbt_lib.download_whole_vdi_using_nbd(vdi=vdi, filename=path)
+
+    def get_all_vdi_backups_from_newest_to_oldest(self):
+        for backup in self.get_backup_dirs_from_newest_to_oldest():
+            for snapshot in backup.iterdir():
+                yield snapshot
+
+    def get_latest_backup_of_vdi(self, vdi):
+
     def backup(self):
         last_backup_dir = self.get_last_backup_dir()
-        if last_backup is None:
+        if last_backup_dir is None:
+            self.enable_cbt()
+            self.full_backup()
