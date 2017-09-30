@@ -70,11 +70,11 @@ class new_nbd_client(object):
             self._disconnect()
             self._closed = True
 
-    def _receive_all_data(self, data_length):
+    def _recvall(self, length):
         data = bytes()
-        while len(data) < data_length:
-            data = data + self._s.recv(data_length - len(data))
-        assert (len(data) == data_length)
+        while len(data) < length:
+            data = data + self._s.recv(length - len(data))
+        assert (len(data) == length)
         return data
 
     def _send_option(self, option, data=b''):
@@ -88,7 +88,7 @@ class new_nbd_client(object):
 
     def _parse_option_reply(self):
         print("NBD parsing option reply")
-        reply = self._s.recv(8 + 4 + 4 + 4)
+        reply = self._recvall(8 + 4 + 4 + 4)
         (magic, option, reply_type, data_length) = struct.unpack(
             ">QLLL", reply)
         print("NBD reply magic='%x' option='%d' reply_type='%d'" %
@@ -96,7 +96,7 @@ class new_nbd_client(object):
         assert (magic == self.OPTION_REPLY_MAGIC)
         assert (option == self._option)
         assert (reply_type == self.NBD_REP_ACK)
-        data = self._receive_all_data(data_length)
+        data = self._recvall(data_length)
         return data
 
     def _upgrade_socket_to_TLS(self):
@@ -121,11 +121,11 @@ class new_nbd_client(object):
         assert (len(data) == 0)
 
     def _fixed_new_style_handshake(self, export_name):
-        nbd_magic = self._s.recv(len("NBDMAGIC"))
+        nbd_magic = self._recvall(len("NBDMAGIC"))
         assert (nbd_magic == b'NBDMAGIC')
-        nbd_magic = self._s.recv(len("IHAVEOPT"))
+        nbd_magic = self._recvall(len("IHAVEOPT"))
         assert (nbd_magic == b'IHAVEOPT')
-        buf = self._s.recv(2)
+        buf = self._recvall(2)
         self._flags = struct.unpack(">H", buf)[0]
         assert (self._flags & self.NBD_FLAG_HAS_FLAGS != 0)
         client_flags = self.NBD_FLAG_C_FIXED_NEWSTYLE
@@ -143,10 +143,13 @@ class new_nbd_client(object):
 
         # non-fixed newstyle negotiation: we get this if the server is willing
         # to allow the export
-        buf = self._s.recv(8)
+        buf = self._recvall(8)
         self._size = struct.unpack(">Q", buf)[0]
         # ignore the transmission flags (& zeroes)
-        self._s.recv(2 + 124)
+        transmission_flags = self._recvall(2)
+        print("NBD got transmission flags: {}".format(transmission_flags))
+        zeroes = self._recvall(124)
+        print("NBD got zeroes: {}".format(zeroes))
         print("Connected")
 
     def _build_request_header(self, request_type, offset, length):
@@ -158,14 +161,14 @@ class new_nbd_client(object):
 
     def _parse_reply(self, data_length=0):
         print("NBD parsing response, data_length=%d" % data_length)
-        reply = self._s.recv(4 + 4 + 8)
+        reply = self._recvall(4 + 4 + 8)
         (magic, errno, handle) = struct.unpack(">LLQ", reply)
         print("NBD response magic='%x' errno='%d' handle='%d'" % (magic, errno,
                                                                   handle))
         assert (magic == self.NBD_REPLY_MAGIC)
         assert (handle == self._handle)
         self._handle += 1
-        data = self._receive_all_data(data_length=data_length)
+        data = self._recvall(length=data_length)
         print("NBD response received data_length=%d bytes" % data_length)
         return (data, errno)
 
