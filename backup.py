@@ -118,3 +118,8 @@ class Backup:
         if not self.has_backup():
             self.enable_cbt()
         self.vm_backup(vm=snapshot, backup_dir=backup_dir)
+
+
+if __name__ == '__main__':
+    import fire
+    fire.Fire(Backup)
