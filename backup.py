@@ -52,22 +52,15 @@ class Backup:
         for vdi in self._session.xenapi.VM.get_VDIs(self._vm):
             self._session.xenapi.VDI.enable_cbt(vdi)
 
-    def get_new_backup_dir(self):
+    def get_timestamp(self):
+        import datetime
         # don't use characters that are invalid in filenames
         now = datetime.datetime.utcnow().isoformat().strftime("%Y%m%d%H%M%S")
-        backup_dir = self._vm_dir / now
+        return now
+
+    def get_new_backup_dir(self, timestamp):
+        backup_dir = self._vm_dir / timestamp
         return backup_dir
-
-    def full_vm_backup(self):
-        import datetime
-
-        snapshot = self._session.xenapi.VM.snapshot(self._vm)
-
-        backup_dir = self.get_new_backup_dir()
-        for vdi in self._session.xenapi.VM.get_VDIs(snapshot):
-            vdi_uuid = self._session.xenapi.VDI.get_uuid(vdi)
-            path = backup_dir / vdi_uuid
-            self._cbt_lib.download_whole_vdi_using_nbd(vdi=vdi, filename=path)
 
     def get_all_vdi_backups(self):
         for backup in self.get_backup_dirs():
@@ -87,26 +80,41 @@ class Backup:
         backups_from_newest_to_oldest = ((s, self.get_local_backup_of_snapshot(s)) for s in snapshots_from_newest_to_oldest)
         next( ((s, b) for (s, b) in backups_from_newest_to_oldest if b is not None), None)
 
-    def incremental_vdi_backup(self, backup_dir, vdi):
+    def full_vdi_backup(self, vdi, output_file):
+        self._cbt_lib.download_whole_vdi_using_nbd(vdi=vdi, filename=output_file)
+
+    def incremental_vdi_backup(self, vdi, latest_backup, output_file):
         import shutil
 
-        (vdi_from, vdi_from_backup) = self.get_latest_backup_of_vdi(vdi)
+        (vdi_from, vdi_from_backup) = latest_backup
+
+        shutil.copy(src=str(vdi_from_backup), dst=str(output_file))
+
+        self._cbt_lib.save_changed_blocks(vdi_from=vdi_from, vdi_to=vdi, output_file)
+
+    def vdi_backup(self, backup_dir, vdi):
         vdi_uuid = self._session.xenapi.VDI.get_uuid(vdi)
+        output_file = backup_dir / vdi_uuid
 
-        out = backup_dir / vdi_uuid
-        shutil.copy(src=str(vdi_from_backup), dst=str(out))
-        self._cbt_lib.save_changed_blocks(vdi_from=vdi_from, vdi_to=vdi_to, out)
+        latest_backup = self.get_latest_backup_of_vdi(vdi)
+        if latest_backup is None:
+            self.full_vdi_backup(vdi=vdi, output_file=output_file)
+        else:
+            self.incremental_vdi_backup(vdi=vdi, latest_backup=latest_backup, output_file=output_file)
 
-    def incremental_vm_backup(self):
-        backup_dir = self.get_new_backup_dir()
-        new_name = self.xenapi.VM.get_name_label(self._vm) + "_cbt_backup_" + now
-        snapshot = self._session.xenapi.VM.snapshot(self._vm, new_name)
-        for vdi in self._session.xenapi.VM.get_VDIs(self._vm):
-            incremental_vdi_backup(backup_dir, vdi)
+    def vm_backup(self, vm, backup_dir):
+        for vdi in self._session.xenapi.VM.get_VDIs(vm):
+            self.vdi_backup(backup_dir=backup_dir, vdi=vdi)
+
+    def snapshot_vm(self, timestamp):
+        new_name = self.xenapi.VM.get_name_label(self._vm) + "_cbt_backup_" + timestamp
+        return self._session.xenapi.VM.snapshot(self._vm, new_name)
 
     def backup(self):
+        timestamp = self.get_timestamp()
+        backup_dir = self.get_new_backup_dir(timestamp)
+        snapshot = self.snapshot_vm(timestamp)
+
         if not self.has_backup():
             self.enable_cbt()
-            self.full_vm_backup()
-        else:
-            self.incremental_vm_backup()
+        self.vm_backup(vm=snapshot, backup_dir=backup_dir)
