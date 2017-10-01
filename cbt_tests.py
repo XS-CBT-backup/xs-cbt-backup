@@ -352,7 +352,7 @@ class CBTTests(object):
         return out.name
 
     def overwrite_changed_blocks(self, changed_blocks, output_file):
-        with open(output_file, 'wb') as out:
+        with Path(output_file).open(mode='wb') as out:
             for (offset, block) in changed_blocks:
                 out.seek(offset)
                 out.write(block)
