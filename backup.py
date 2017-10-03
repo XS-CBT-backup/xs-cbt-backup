@@ -32,21 +32,25 @@ class Backup(object):
         self._password = password
 
     def _get_backup_dirs(self):
+        print(
+            "Listing subdirectories of the VM backup directory {} corresponding to backups of that VM.".
+            format(self._vm_dir))
         return self._vm_dir.iterdir()
 
     def _has_backup(self):
-        any(self._get_backup_dirs())
+        print("Checking whether VM {} has any local backups".format(self._vm))
+        return any(self._get_backup_dirs())
 
-    def _get_vdis_of_vm(self):
-        for vbd in self._session.xenapi.VM.get_VBDs(self._vm):
+    def _get_vdis_of_vm(self, vm):
+        for vbd in self._session.xenapi.VM.get_VBDs(vm):
             vdi = self._session.xenapi.VBD.get_VDI(vbd)
-            print("Got VDI {}".format(vdi))
+            print("Got VDI {} of VM {}".format(vdi, vm))
             if not self._session.xenapi.VBD.get_empty(vbd):
                 yield vdi
 
-    def _enable_cbt(self):
-        for vdi in self._get_vdis_of_vm():
-            print("Enabling CBT on VDI {}".format(vdi))
+    def _enable_cbt(self, vm):
+        for vdi in self._get_vdis_of_vm(vm):
+            print("Enabling CBT on VDI {} of VM {}".format(vdi, vm))
             self._session.xenapi.VDI.enable_cbt(vdi)
 
     def _get_timestamp(self):
@@ -58,22 +62,38 @@ class Backup(object):
     def _get_new_backup_dir(self, timestamp):
         backup_dir = self._vm_dir / timestamp
         backup_dir.mkdir()
+        print("Created new backup directory {}".format(backup_dir))
         return backup_dir
 
     def _get_all_vdi_backups(self):
         for backup in self._get_backup_dirs():
             for snapshot in backup.iterdir():
+                print("Found backed up snapshot {} in directory {}".format(
+                    snapshot.name, snapshot))
                 yield snapshot
 
     def _get_local_backup_of_snapshot(self, s):
         uuid = self._session.xenapi.VDI.get_uuid(s)
-        next((b for b in self._get_all_vdi_backups() if b.name == uuid), None)
+        print(
+            "Trying to find the local backup of snapshot VDI {} with UUID {}".
+            format(s, uuid))
+        local_backup = next((b for b in self._get_all_vdi_backups()
+                             if b.name == uuid), None)
+        print("Found local backup {} for snapshot with UUID {}".format(
+            local_backup, uuid))
 
     def _snapshot_timestamp(self, s):
         return self._session.xenapi.VDI.get_snapshot_time(s)
 
-    def _get_latest_backup_of_vdi(self, vdi):
+    def _get_latest_backup_of_vdi(self, snapshot):
+        # First we need to get the original VDI that we've just snapshotted
+        # - the snapshots field of a snapshot VDI is empty.
+        vdi = self._session.xenapi.VDI.get_snapshot_of(snapshot)
+        print(
+            "Trying to find the latest local backup of VDI {} to back up its new snapshot {}".
+            format(vdi, snapshot))
         snapshots = self._session.xenapi.VDI.get_snapshots(vdi)
+        print("Found snapshots of VDI: {}".format(snapshots))
         snapshots_from_newest_to_oldest = sorted(
             snapshots, key=lambda s: self._snapshot_timestamp(s), reverse=True)
         backups_from_newest_to_oldest = (
@@ -83,10 +103,11 @@ class Backup(object):
               if b is not None), None)
 
     def _full_vdi_backup(self, vdi, output_file):
-        self._cbt_lib.download_whole_vdi_using_nbd(
-            vdi=vdi, path=output_file)
+        print("Starting a full backup for VDI {}".format(vdi))
+        self._cbt_lib.download_whole_vdi_using_nbd(vdi=vdi, path=output_file)
 
     def _incremental_vdi_backup(self, vdi, latest_backup, output_file):
+        print("Starting an incremental backup for VDI {}".format(vdi))
         import shutil
 
         (vdi_from, vdi_from_backup) = latest_backup
@@ -98,9 +119,11 @@ class Backup(object):
 
     def _vdi_backup(self, backup_dir, vdi):
         vdi_uuid = self._session.xenapi.VDI.get_uuid(vdi)
+        print("Backing up VDI {} with UUID {}".format(vdi, vdi_uuid))
         output_file = backup_dir / vdi_uuid
 
         latest_backup = self._get_latest_backup_of_vdi(vdi)
+        print("Found latest backup: {}".format(latest_backup))
         if latest_backup is None:
             self._full_vdi_backup(vdi=vdi, output_file=output_file)
         else:
@@ -108,21 +131,28 @@ class Backup(object):
                 vdi=vdi, latest_backup=latest_backup, output_file=output_file)
 
     def _vm_backup(self, vm, backup_dir):
-        for vdi in self._get_vdis_of_vm():
+        for vdi in self._get_vdis_of_vm(vm):
             self._vdi_backup(backup_dir=backup_dir, vdi=vdi)
 
     def _snapshot_vm(self, timestamp):
         new_name = self._session.xenapi.VM.get_name_label(
             self._vm) + "_cbt_backup_" + timestamp
+        print("Snapshotting VM {} as snapshot '{}".format(self._vm, new_name))
         return self._session.xenapi.VM.snapshot(self._vm, new_name)
 
     def backup(self):
+        print("Backing up VM {} in the pool with master {}".format(
+            self._vm, self._pool_master))
+        print(
+            "Backups of VM {} are stored in {}".format(self._vm, self._vm_dir))
+
         timestamp = self._get_timestamp()
         backup_dir = self._get_new_backup_dir(timestamp)
         snapshot = self._snapshot_vm(timestamp)
 
         if not self._has_backup():
-            self._enable_cbt()
+            print("VM {} has no local backups".format(self._vm))
+            self._enable_cbt(self._vm)
         self._vm_backup(vm=snapshot, backup_dir=backup_dir)
 
 
