@@ -371,14 +371,14 @@ class CBTTests(object):
         else:
             return self.write_blocks_consecutively(blocks, output_file)
 
-    def download_whole_vdi_using_nbd(self, vdi, filename=None):
+    def download_whole_vdi_using_nbd(self, vdi, path=None):
         import tempfile
 
         c = self.get_xapi_nbd_client(vdi=vdi)
-        if filename is None:
+        if path is None:
             out = tempfile.NamedTemporaryFile('ab', delete=False)
         else:
-            out = open(filename, 'ab')
+            out = path.open('ab')
         # download 4MiB chunks
         chunk_size = 4 * 1024 * 1024
         for offset in range(0, c.size(), chunk_size):
@@ -490,9 +490,10 @@ class CBTTestsCLI(object):
             overwrite_changed_blocks=overwrite_changed_blocks)
 
     def download_whole_vdi_using_nbd(self, vdi, filename=None):
+        from pathlib import Path
         vdi = self._session.xenapi.VDI.get_by_uuid(vdi)
         return self._cbt_tests.download_whole_vdi_using_nbd(
-            vdi=vdi, filename=filename)
+            vdi=vdi, path=Path(filename))
 
     def get_certfile(self):
         print(self._cbt_tests.get_certfile())
