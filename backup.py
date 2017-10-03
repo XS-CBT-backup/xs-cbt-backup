@@ -92,7 +92,7 @@ class Backup:
 
         shutil.copy(src=str(vdi_from_backup), dst=str(output_file))
 
-        self._cbt_lib.save_changed_blocks(vdi_from=vdi_from, vdi_to=vdi, output_file)
+        self._cbt_lib.save_changed_blocks(vdi_from=vdi_from, vdi_to=vdi, output_file=output_file)
 
     def vdi_backup(self, backup_dir, vdi):
         vdi_uuid = self._session.xenapi.VDI.get_uuid(vdi)
