@@ -1,3 +1,5 @@
+#!/usr/bin/python3
+
 from cbt_tests import CBTTests
 
 def get_only_child(self, path):
