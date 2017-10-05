@@ -38,7 +38,6 @@ class Backup(object):
         return self._vm_dir.iterdir()
 
     def _has_backup(self):
-        print("Checking whether VM {} has any local backups".format(self._vm))
         return any(self._get_backup_dirs())
 
     def _get_vdis_of_vm(self, vm):
@@ -81,6 +80,7 @@ class Backup(object):
                              if b.name == uuid), None)
         print("Found local backup {} for snapshot with UUID {}".format(
             local_backup, uuid))
+        return local_backup
 
     def _snapshot_timestamp(self, s):
         return self._session.xenapi.VDI.get_snapshot_time(s)
@@ -99,8 +99,12 @@ class Backup(object):
         backups_from_newest_to_oldest = (
             (s, self._get_local_backup_of_snapshot(s))
             for s in snapshots_from_newest_to_oldest)
-        next(((s, b) for (s, b) in backups_from_newest_to_oldest
-              if b is not None), None)
+        backups_from_newest_to_oldest = list(backups_from_newest_to_oldest)
+        print("Found backups of snapshot {}: {}".format(snapshot, backups_from_newest_to_oldest))
+        backups_from_newest_to_oldest = list((s, b) for (s, b) in backups_from_newest_to_oldest
+              if b is not None)
+        print("Present backups of snapshot {}: {}".format(snapshot, backups_from_newest_to_oldest))
+        return next(iter(backups_from_newest_to_oldest), None)
 
     def _full_vdi_backup(self, vdi, output_file):
         print("Starting a full backup for VDI {}".format(vdi))
@@ -112,6 +116,7 @@ class Backup(object):
 
         (vdi_from, vdi_from_backup) = latest_backup
 
+        print("Copying from {} to {}".format(vdi_from_backup, output_file))
         shutil.copy(src=str(vdi_from_backup), dst=str(output_file))
 
         self._cbt_lib.save_changed_blocks(
@@ -146,13 +151,17 @@ class Backup(object):
         print(
             "Backups of VM {} are stored in {}".format(self._vm, self._vm_dir))
 
+        # Check for any existing backup directories before we create the new one below
+        if not self._has_backup():
+            print("VM {} has no local backups".format(self._vm))
+            self._enable_cbt(self._vm)
+        else:
+            print("VM {} already has a local backup, assuming CBT is already enabled.".format(self._vm))
+
         timestamp = self._get_timestamp()
         backup_dir = self._get_new_backup_dir(timestamp)
         snapshot = self._snapshot_vm(timestamp)
 
-        if not self._has_backup():
-            print("VM {} has no local backups".format(self._vm))
-            self._enable_cbt(self._vm)
         self._vm_backup(vm=snapshot, backup_dir=backup_dir)
 
 

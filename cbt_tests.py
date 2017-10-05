@@ -327,6 +327,9 @@ class CBTTests(object):
         if vdi_from is None:
             vdi_from = self._session.xenapi.VDI.snapshot(vdi_to)
 
+        vdi_from_uuid = self._session.xenapi.VDI.get_uuid(vdi_from)
+        vdi_to_uuid = self._session.xenapi.VDI.get_uuid(vdi_to)
+        print("self._session.xenapi.VDI.list_changed_blocks({}, {})".format(vdi_from_uuid, vdi_to_uuid))
         return self._session.xenapi.VDI.list_changed_blocks(vdi_from, vdi_to)
 
     def download_changed_blocks(self, vdi_from=None, vdi_to=None):
@@ -352,6 +355,7 @@ class CBTTests(object):
         return out.name
 
     def overwrite_changed_blocks(self, changed_blocks, output_file):
+        from pathlib import Path
         with Path(output_file).open(mode='wb') as out:
             for (offset, block) in changed_blocks:
                 out.seek(offset)
