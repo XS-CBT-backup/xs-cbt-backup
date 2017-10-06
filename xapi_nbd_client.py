@@ -9,6 +9,8 @@ class xapi_nbd_client(new_nbd_client):
         pp('Can connect to the following addresses:')
         pp(infos)
         info = infos[0]
+        pp('Using the following:')
+        pp(info)
         host = info["address"]
         export_name = info["exportname"]
         port = info["port"]
