@@ -50,8 +50,8 @@ class new_nbd_client(object):
     NBD_REPLY_MAGIC = 0x67446698
 
     def __init__(self, host, export_name="", port=10809, ca_cert=None):
-        print("Connecting to export '{}' on host '{}'"
-              .format(export_name, host))
+        print("Connecting to export '{}' on host '{}' and port '{}'"
+              .format(export_name, host, port))
         self._flushed = True
         self._closed = True
         self._handle = 0

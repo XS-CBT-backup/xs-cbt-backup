@@ -18,17 +18,22 @@ class CBTTests(object):
     TEST_VDI_NAME = "test"
 
     def __init__(self,
-                 pool_master,
+                 pool_master_address,
                  username,
                  password,
-                 host=None,
+                 hostname=None,
                  use_tls=True):
-        self._pool_master = pool_master
-        self._host = host or pool_master
+        self._pool_master_address = pool_master_address
         self._username = username
         self._password = password
-        self._use_tls = use_tls
         self._session = self.create_session()
+        if hostname is not None:
+            [self._host
+             ] = self._session.xenapi.host.get_by_name_label(hostname)
+        else:
+            self._host = self._session.xenapi.session.get_this_host(
+                self._session._session) or pool_master_address
+        self._use_tls = use_tls
 
     def __del__(self):
         self.cleanup_test_vdis()
@@ -38,23 +43,17 @@ class CBTTests(object):
     # out after we printed the session ref for the user
     def create_test_session(self):
         from xmlrpc.client import ServerProxy
-        p = ServerProxy("http://" + self._pool_master)
+        p = ServerProxy("http://" + self._pool_master_address)
         session = p.session.login_with_password(self._username,
                                                 self._password)['Value']
         return session
 
-    def _get_host(self):
-        hostname = (self._host).partition('.')[0]
-        [host_ref] = self._session.xenapi.host.get_by_name_label(hostname)
-        return host_ref
-
     def get_certfile(self):
-        return self._session.xenapi.host.get_server_certificate(
-            self._get_host())
+        return self._session.xenapi.host.get_server_certificate(self._host)
 
     def create_session(self):
         import XenAPI
-        session = XenAPI.Session("http://" + self._pool_master)
+        session = XenAPI.Session("http://" + self._pool_master_address)
         session.xenapi.login_with_password(self._username, self._password,
                                            "1.0", program_name)
         return session
@@ -64,8 +63,7 @@ class CBTTests(object):
         if sr is None:
             # Get an SR that is only attached to this host (not shared), for
             # testing local SRs
-            host_ref = self._get_host()
-            pbds = self._session.xenapi.host.get_PBDs(host_ref)
+            pbds = self._session.xenapi.host.get_PBDs(self._host)
             srs = [
                 self._session.xenapi.PBD.get_SR(pbd) for pbd in pbds
                 if self._session.xenapi.PBD.get_currently_attached(pbd) is True
@@ -329,7 +327,8 @@ class CBTTests(object):
 
         vdi_from_uuid = self._session.xenapi.VDI.get_uuid(vdi_from)
         vdi_to_uuid = self._session.xenapi.VDI.get_uuid(vdi_to)
-        print("self._session.xenapi.VDI.list_changed_blocks({}, {})".format(vdi_from_uuid, vdi_to_uuid))
+        print("self._session.xenapi.VDI.list_changed_blocks({}, {})".format(
+            vdi_from_uuid, vdi_to_uuid))
         return self._session.xenapi.VDI.list_changed_blocks(vdi_from, vdi_to)
 
     def download_changed_blocks(self, vdi_from=None, vdi_to=None):
@@ -414,21 +413,17 @@ class CBTTests(object):
 class CBTTestsCLI(object):
     def __init__(self,
                  pool_master,
-                 host=None,
+                 hostname=None,
                  username=None,
                  password=None,
                  use_tls=True):
         username = username or os.environ['XS_USERNAME']
         password = password or os.environ['XS_PASSWORD']
-        self._pool_master = pool_master
-        self._host = host or pool_master
-        self._username = username
-        self._password = password
         self._cbt_tests = CBTTests(
-            pool_master=pool_master,
+            pool_master_address=pool_master,
             username=username,
             password=password,
-            host=host,
+            hostname=hostname,
             use_tls=use_tls)
         self._session = self._cbt_tests._session
 

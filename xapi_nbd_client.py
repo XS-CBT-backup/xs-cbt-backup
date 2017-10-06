@@ -10,23 +10,15 @@ def get_all_certificates(session):
 
 class xapi_nbd_client(new_nbd_client):
     def __init__(self, session, vdi, use_tls=True):
-        from urllib.parse import urlparse
         from pprint import pprint as pp
 
-        uris = session.xenapi.VDI.get_nbd_info(vdi)
-        pp('Can connect to the following URIs:')
-        pp(uris)
-        uri = uris[0]
-        pp('Connecting to URI:')
-        pp(uri)
-        uri = urlparse(uri)
-        host_and_port = uri.netloc.split(':')
-        host = host_and_port[0]
-        try:
-            port = host_and_port[1]
-        except:
-            port = None
-        export_name = uri.path + '?' + uri.query
+        infos = session.xenapi.VDI.get_nbd_info(vdi)
+        pp('Can connect to the following addresses:')
+        pp(infos)
+        info = infos[0]
+        host = info["address"]
+        export_name = info["exportname"]
+        port = info["port"]
 
         if use_tls:
             ca_cert = get_all_certificates(session)
