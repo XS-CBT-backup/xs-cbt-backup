@@ -1,13 +1,6 @@
 from new_nbd_client import new_nbd_client
 
 
-def get_all_certificates(session):
-    cacert = ""
-    for host in session.xenapi.host.get_all():
-        cacert += session.xenapi.host.get_server_certificate(host) + "\n"
-    return cacert
-
-
 class xapi_nbd_client(new_nbd_client):
     def __init__(self, session, vdi, use_tls=True):
         from pprint import pprint as pp
@@ -19,9 +12,8 @@ class xapi_nbd_client(new_nbd_client):
         host = info["address"]
         export_name = info["exportname"]
         port = info["port"]
-
         if use_tls:
-            ca_cert = get_all_certificates(session)
+            ca_cert = info["cert"]
         else:
             ca_cert = None
 
