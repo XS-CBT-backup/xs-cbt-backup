@@ -227,7 +227,7 @@ class CBTTests(object):
         self._test_nbd_server_cleans_up_vbds(False, "stop")
         self._test_nbd_server_cleans_up_vbds(True, "restart")
 
-    def loop_connect_disconnect(self, vdi=None, n=1000, random_delays=False):
+    def loop_connect_disconnect(self, vdi=None, n=1030, random_delays=False):
         import time
         import random
 
@@ -447,7 +447,7 @@ class CBTTestsCLI(object):
     def test_nbd_server_cleans_up_vbds(self):
         self._cbt_tests.test_nbd_server_cleans_up_vbds()
 
-    def loop_connect_disconnect(self, vdi=None, n=1000, random_delays=False):
+    def loop_connect_disconnect(self, vdi=None, n=1030, random_delays=False):
         self._cbt_tests.loop_connect_disconnect(
             vdi=vdi, n=n, random_delays=random_delays)
 
