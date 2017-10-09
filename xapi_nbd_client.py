@@ -1,23 +1,5 @@
 from new_nbd_client import new_nbd_client
-
-
-def enable_nbd_if_necessary(session):
-    import time
-    has_nbd_network = False
-    for network in session.xenapi.network.get_all():
-        purpose = session.xenapi.network.get_purpose(network)
-        if "nbd" in purpose or "insecure_nbd" in purpose:
-            print("Found network on which NBD ({}) is allowed: {}".format(
-                purpose, network))
-            has_nbd_network = True
-    if not has_nbd_network:
-        print("WARNING: Found no network on which NBD is allowed, enabling "
-              "secure NBD on ALL NETWORKS!!!!!!!")
-        for network in session.xenapi.network.get_all():
-            print("Enabling secure NBD on network {}".format(network))
-            session.xenapi.network.add_purpose(network, "nbd")
-        # wait for a bit for the change to take effect
-        time.sleep(0.5)
+import cbt_tests
 
 
 class xapi_nbd_client(new_nbd_client):
@@ -28,7 +10,7 @@ class xapi_nbd_client(new_nbd_client):
         self._closed = True
 
         if auto_enable_nbd:
-            enable_nbd_if_necessary(session)
+            cbt_tests.enable_nbd_if_necessary(session)
 
         infos = session.xenapi.VDI.get_nbd_info(vdi)
         pp('Can connect to the following addresses:')

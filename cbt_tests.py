@@ -5,6 +5,45 @@ import os
 program_name = "cbt_tests.py"
 
 
+def has_vlan_pif(session, network):
+    pifs = session.xenapi.network.get_PIFs(network)
+    vlan = False
+    print("Checking PIFs of network {} to see if it is a VLAN master".format(
+        network))
+    for pif in pifs:
+        print("Checking PIF {} of network {} to see if it is a VLAN master".
+              format(pif, network))
+        vlan_master_of = session.xenapi.PIF.get_VLAN_master_of(pif)
+        print(vlan_master_of)
+        if vlan_master_of != "OpaqueRef:NULL":
+            print("Network {} has a VLAN PIF {}".format(network, pif))
+            vlan = True
+    return vlan
+
+
+def enable_nbd_if_necessary(session, skip_vlan_networks=True):
+    import time
+    has_nbd_network = False
+    for network in session.xenapi.network.get_all():
+        purpose = session.xenapi.network.get_purpose(network)
+        if "nbd" in purpose or "insecure_nbd" in purpose:
+            print("Found network on which NBD ({}) is allowed: {}".format(
+                purpose, network))
+            has_nbd_network = True
+    if not has_nbd_network:
+        print("WARNING: Found no network on which NBD is allowed, enabling "
+              "secure NBD on ALL NETWORKS!!!!!!!")
+        for network in session.xenapi.network.get_all():
+            if has_vlan_pif(session, network) and skip_vlan_networks:
+                print("Skipping network {} because it has a VLAN master PIF".
+                      format(network))
+                continue
+            print("Enabling secure NBD on network {}".format(network))
+            session.xenapi.network.add_purpose(network, "nbd")
+        # wait for a bit for the change to take effect
+        time.sleep(0.5)
+
+
 def get_first_safely(iterable):
     """Gets the 'first' element of an iterable, if any, or None"""
     return next(iter(iterable), None)
@@ -298,8 +337,7 @@ class CBTTests(object):
             infos = self._session.xenapi.VDI.get_nbd_info(vdi)
             print(infos)
             assert (infos == [])
-            for network in self._session.xenapi.network.get_all():
-                self._session.xenapi.network.add_purpose(network, "nbd")
+            enable_nbd_if_necessary(self._session)
             # wait for a bit for the changes to take effect
             time.sleep(1)
             self.get_xapi_nbd_client(vdi=vdi, auto_enable_nbd=False)
