@@ -2,6 +2,7 @@ from new_nbd_client import new_nbd_client
 
 
 def enable_nbd_if_necessary(session):
+    import time
     has_nbd_network = False
     for network in session.xenapi.network.get_all():
         purpose = session.xenapi.network.get_purpose(network)
@@ -15,6 +16,8 @@ def enable_nbd_if_necessary(session):
         for network in session.xenapi.network.get_all():
             print("Enabling secure NBD on network {}".format(network))
             session.xenapi.network.add_purpose(network, "nbd")
+        # wait for a bit for the change to take effect
+        time.sleep(1)
 
 
 class xapi_nbd_client(new_nbd_client):
