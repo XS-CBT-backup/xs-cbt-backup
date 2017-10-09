@@ -94,10 +94,13 @@ class CBTTests(object):
         vdi = self._session.xenapi.VDI.create(new_vdi_record)
         return vdi
 
-    def get_xapi_nbd_client(self, vdi):
+    def get_xapi_nbd_client(self, vdi, auto_enable_nbd=True):
         from xapi_nbd_client import xapi_nbd_client
         return xapi_nbd_client(
-            vdi=vdi, session=self._session, use_tls=self._use_tls)
+            vdi=vdi,
+            session=self._session,
+            use_tls=self._use_tls,
+            auto_enable_nbd=auto_enable_nbd)
 
     def _destroy_vdi_after_nbd_disconnect(self,
                                           vdi,
@@ -125,13 +128,14 @@ class CBTTests(object):
     def _read_from_vdi(self,
                        vdi=None,
                        destroy_op=None,
-                       wait_after_disconnect=True):
+                       wait_after_disconnect=True,
+                       auto_enable_nbd=True):
         if vdi is None:
             print("Creating a VDI")
             vdi = self.create_test_vdi()
             destroy_op = destroy_op or self._session.xenapi.VDI.destroy
 
-        c = self.get_xapi_nbd_client(vdi=vdi)
+        c = self.get_xapi_nbd_client(vdi=vdi, auto_enable_nbd=auto_enable_nbd)
 
         # This usually gives us some interesting text for the ISO VDIs :)
         # If we read from position 0 that's boring, we get all zeros
@@ -145,9 +149,14 @@ class CBTTests(object):
                 destroy_op=destroy_op,
                 wait_after_disconnect=wait_after_disconnect)
 
-    def read_from_vdi(self, vdi=None, wait_after_disconnect=True):
+    def read_from_vdi(self,
+                      vdi=None,
+                      wait_after_disconnect=True,
+                      auto_enable_nbd=True):
         self._read_from_vdi(
-            vdi=vdi, wait_after_disconnect=wait_after_disconnect)
+            vdi=vdi,
+            wait_after_disconnect=wait_after_disconnect,
+            auto_enable_nbd=auto_enable_nbd)
 
     def test_data_destroy(self, wait_after_disconnect=False):
         import time
@@ -276,6 +285,26 @@ class CBTTests(object):
                 print("Destroying VDI {}".format(vdi))
                 self._session.xenapi.VDI.destroy(vdi)
                 print("VDI destroyed")
+
+    def test_nbd_network_config(self):
+        import time
+
+        vdi = self.create_test_vdi()
+        try:
+            for network in self._session.xenapi.network.get_all():
+                self._session.xenapi.network.remove_purpose(network, "nbd")
+                self._session.xenapi.network.remove_purpose(
+                    network, "insecure_nbd")
+            infos = self._session.xenapi.VDI.get_nbd_info(vdi)
+            print(infos)
+            assert (infos == [])
+            for network in self._session.xenapi.network.get_all():
+                self._session.xenapi.network.add_purpose(network, "nbd")
+            # wait for a bit for the changes to take effect
+            time.sleep(1)
+            self.get_xapi_nbd_client(vdi=vdi, auto_enable_nbd=False)
+        finally:
+            self._destroy_vdi_after_nbd_disconnect(vdi=vdi)
 
     def run_ssh_command(self, command):
         import subprocess
@@ -436,9 +465,14 @@ class CBTTestsCLI(object):
         print(vdi)
         print(self._session.xenapi.VDI.get_uuid(vdi))
 
-    def read_from_vdi(self, vdi=None, wait_after_disconnect=True):
+    def read_from_vdi(self,
+                      vdi=None,
+                      wait_after_disconnect=True,
+                      auto_enable_nbd=True):
         self._cbt_tests.read_from_vdi(
-            vdi=vdi, wait_after_disconnect=wait_after_disconnect)
+            vdi=vdi,
+            wait_after_disconnect=wait_after_disconnect,
+            auto_enable_nbd=auto_enable_nbd)
 
     def test_data_destroy(self, wait_after_disconnect=False):
         self._cbt_tests.test_data_destroy(
@@ -446,6 +480,9 @@ class CBTTestsCLI(object):
 
     def test_nbd_server_cleans_up_vbds(self):
         self._cbt_tests.test_nbd_server_cleans_up_vbds()
+
+    def test_nbd_network_config(self):
+        self._cbt_tests.test_nbd_network_config()
 
     def loop_connect_disconnect(self, vdi=None, n=1030, random_delays=False):
         self._cbt_tests.loop_connect_disconnect(

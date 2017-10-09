@@ -17,12 +17,15 @@ def enable_nbd_if_necessary(session):
             print("Enabling secure NBD on network {}".format(network))
             session.xenapi.network.add_purpose(network, "nbd")
         # wait for a bit for the change to take effect
-        time.sleep(1)
+        time.sleep(0.5)
 
 
 class xapi_nbd_client(new_nbd_client):
     def __init__(self, session, vdi, use_tls=True, auto_enable_nbd=True):
         from pprint import pprint as pp
+
+        self._flushed = True
+        self._closed = True
 
         if auto_enable_nbd:
             enable_nbd_if_necessary(session)
