@@ -49,7 +49,7 @@ class new_nbd_client(object):
     NBD_REQUEST_MAGIC = 0x25609513
     NBD_REPLY_MAGIC = 0x67446698
 
-    def __init__(self, host, export_name="", port=10809, ca_cert=None, subject=None):
+    def __init__(self, host, export_name="", port=10809, ca_cert=None, subject=None, new_style_handshake=True):
         print("Connecting to export '{}' on host '{}' and port '{}'"
               .format(export_name, host, port))
         self._flushed = True
@@ -59,7 +59,10 @@ class new_nbd_client(object):
         self._subject = subject
         self._s = socket.create_connection((host, port))
         self._closed = False
-        self._fixed_new_style_handshake(export_name)
+        if new_style_handshake:
+            self._fixed_new_style_handshake(export_name)
+        else:
+            self._old_style_handshake()
 
     def __del__(self):
         self.close()
@@ -152,6 +155,15 @@ class new_nbd_client(object):
         zeroes = self._recvall(124)
         print("NBD got zeroes: {}".format(zeroes))
         print("Connected")
+
+    def _old_style_handshake(self):
+        nbd_magic = self._recvall(len("NBDMAGIC"))
+        assert(nbd_magic == b'NBDMAGIC')
+        buf = self._recvall(8 + 8 + 4)
+        (magic, self._size, self._flags) = struct.unpack(">QQL", buf)
+        assert(magic == 0x00420281861253)
+        # ignore trailing zeroes
+        self._recvall(124)
 
     def _build_request_header(self, request_type, offset, length):
         print("NBD request offset=%d length=%d" % (offset, length))
