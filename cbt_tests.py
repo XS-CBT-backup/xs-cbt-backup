@@ -21,7 +21,7 @@ def has_vlan_pif(session, network):
     return vlan
 
 
-def enable_nbd_if_necessary(session, skip_vlan_networks=True):
+def enable_nbd_if_necessary(session, use_tls=True, skip_vlan_networks=True):
     import time
     has_nbd_network = False
     for network in session.xenapi.network.get_all():
@@ -39,9 +39,12 @@ def enable_nbd_if_necessary(session, skip_vlan_networks=True):
                       format(network))
                 continue
             print("Enabling secure NBD on network {}".format(network))
-            session.xenapi.network.add_purpose(network, "nbd")
-        # wait for a bit for the change to take effect
-        time.sleep(0.5)
+            nbd_purpose = "nbd" if use_tls else "insecure_nbd"
+            session.xenapi.network.add_purpose(network, nbd_purpose)
+        # wait for a bit for the changes to take effect
+        # We do rate limiting with a 5s delay, so sometimes the update
+        # takes at least 5 seconds
+        time.sleep(7)
 
 
 def get_first_safely(iterable):
@@ -61,7 +64,8 @@ class CBTTests(object):
                  username,
                  password,
                  hostname=None,
-                 use_tls=True):
+                 use_tls=True,
+                 skip_vlan_networks=True):
         self._pool_master_address = pool_master_address
         self._username = username
         self._password = password
@@ -73,6 +77,7 @@ class CBTTests(object):
             self._host = self._session.xenapi.session.get_this_host(
                 self._session._session) or pool_master_address
         self._use_tls = use_tls
+        self._skip_vlan_networks = skip_vlan_networks
 
     def __del__(self):
         self.cleanup_test_vdis()
@@ -139,7 +144,8 @@ class CBTTests(object):
             vdi=vdi,
             session=self._session,
             use_tls=self._use_tls,
-            auto_enable_nbd=auto_enable_nbd)
+            auto_enable_nbd=auto_enable_nbd,
+            skip_vlan_networks=self._skip_vlan_networks)
 
     def _destroy_vdi_after_nbd_disconnect(self,
                                           vdi,
@@ -325,22 +331,54 @@ class CBTTests(object):
                 self._session.xenapi.VDI.destroy(vdi)
                 print("VDI destroyed")
 
+    def _enable_nbd_on_network(self, network):
+        print("Enabling secure NBD on network {}".format(network))
+        nbd_purpose = "nbd" if self._use_tls else "insecure_nbd"
+        self._session.xenapi.network.add_purpose(network, nbd_purpose)
+
+    def _disable_nbd_on_all_networks(self):
+        import time
+        for network in self._session.xenapi.network.get_all():
+            self._session.xenapi.network.remove_purpose(network, "nbd")
+            self._session.xenapi.network.remove_purpose(
+                network, "insecure_nbd")
+        # wait for a bit for the changes to take effect
+        # We do rate limiting with a 5s delay, so sometimes the update
+        # takes at least 5 seconds
+        time.sleep(7)
+
     def test_nbd_network_config(self):
         import time
-
         vdi = self.create_test_vdi()
         try:
-            for network in self._session.xenapi.network.get_all():
-                self._session.xenapi.network.remove_purpose(network, "nbd")
-                self._session.xenapi.network.remove_purpose(
-                    network, "insecure_nbd")
+            # test that if we disable NBD on all networks, we cannot connect
+            self._disable_nbd_on_all_networks()
             infos = self._session.xenapi.VDI.get_nbd_info(vdi)
             print(infos)
             assert (infos == [])
-            enable_nbd_if_necessary(self._session)
+            # test that if we enable NBD on all networks, we can connect
+            self.get_xapi_nbd_client(vdi=vdi, auto_enable_nbd=True)
+            # now enable all the networks one by one and check that we can
+            # connect through them
+            self._disable_nbd_on_all_networks()
+            for network in self._session.xenapi.network.get_all():
+                if has_vlan_pif(self._session,
+                                network) and self._skip_vlan_networks:
+                    print("Skipping network {} because it has a"
+                          " VLAN master PIF".format(network))
+                    continue
+                self._disable_nbd_on_all_networks()
+                self._enable_nbd_on_network(network=network)
+                infos = self._session.xenapi.VDI.get_nbd_info(vdi)
+                if (infos == []):
+                    print("Skipping network {} because VDI {} is not reachable"
+                          " through it".format(network, vdi))
+                    continue
+                self.get_xapi_nbd_client(vdi=vdi, auto_enable_nbd=False)
             # wait for a bit for the changes to take effect
-            time.sleep(1)
-            self.get_xapi_nbd_client(vdi=vdi, auto_enable_nbd=False)
+            # We do rate limiting with a 5s delay, so sometimes the update
+            # takes at least 5 seconds
+            time.sleep(7)
         finally:
             self._destroy_vdi_after_nbd_disconnect(vdi=vdi)
 
