@@ -68,23 +68,18 @@ class CBTTests(object):
     TEST_VDI_NAME = "test"
 
     def __init__(self,
-                 pool_master_address,
-                 username,
-                 password,
+                 session,
                  hostname=None,
                  sr=None,
                  use_tls=True,
                  skip_vlan_networks=True):
-        self._pool_master_address = pool_master_address
-        self._username = username
-        self._password = password
-        self._session = self.create_session()
+        self._session = session
         if hostname is not None:
             [self._host
              ] = self._session.xenapi.host.get_by_name_label(hostname)
         else:
             self._host = self._session.xenapi.session.get_this_host(
-                self._session._session) or pool_master_address
+                self._session._session)
         if sr is not None:
             self._sr = sr
         else:
@@ -109,24 +104,8 @@ class CBTTests(object):
         self.cleanup_test_vdis()
         self._session.xenapi.session.logout()
 
-    # Create a session that won't be garbage-collected and maybe even logged
-    # out after we printed the session ref for the user
-    def create_test_session(self):
-        from xmlrpc.client import ServerProxy
-        p = ServerProxy("http://" + self._pool_master_address)
-        session = p.session.login_with_password(self._username,
-                                                self._password)['Value']
-        return session
-
     def get_certfile(self):
         return self._session.xenapi.host.get_server_certificate(self._host)
-
-    def create_session(self):
-        import XenAPI
-        session = XenAPI.Session("http://" + self._pool_master_address)
-        session.xenapi.login_with_password(self._username, self._password,
-                                           "1.0", program_name)
-        return session
 
     def create_test_vdi(self, sr=None, keep_after_exit=False):
         print("Creating a VDI")
@@ -543,25 +522,34 @@ class CBTTestsCLI(object):
                  sr_uuid=None,
                  use_tls=True,
                  skip_vlan_networks=True):
-        username = username or os.environ['XS_USERNAME']
-        password = password or os.environ['XS_PASSWORD']
+        import XenAPI
+
+        self._pool_master_address = pool_master
+        self._username = username or os.environ['XS_USERNAME']
+        self._password = password or os.environ['XS_PASSWORD']
+        self._session = XenAPI.Session("http://" + self._pool_master_address)
+        self._session.xenapi.login_with_password(
+            self._username, self._password, "1.0", program_name)
         if sr_uuid is not None:
             sr = self._session.xenapi.VDI.get_by_uuid(sr_uuid)
         else:
             sr = None
         self._cbt_tests = CBTTests(
-            pool_master_address=pool_master,
-            username=username,
-            password=password,
+            session=self._session,
             hostname=hostname,
             sr=sr,
             use_tls=use_tls,
             skip_vlan_networks=skip_vlan_networks)
         self._session = self._cbt_tests._session
 
+    # Create a session that won't be garbage-collected and maybe even logged
+    # out after we printed the session ref for the user
     def create_test_session(self):
-        session = self._cbt_tests.create_test_session()
-        print(session)
+        from xmlrpc.client import ServerProxy
+        p = ServerProxy("http://" + self._pool_master_address)
+        session = p.session.login_with_password(self._username,
+                                                self._password)['Value']
+        return session
 
     def create_test_vdi(self, sr=None):
         vdi = self._cbt_tests.create_test_vdi(sr=sr, keep_after_exit=True)
