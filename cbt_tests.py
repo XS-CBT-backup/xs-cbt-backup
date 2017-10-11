@@ -388,10 +388,6 @@ class CBTTests(object):
                           " through it".format(network, vdi))
                     continue
                 self.get_xapi_nbd_client(vdi=vdi, auto_enable_nbd=False)
-            # wait for a bit for the changes to take effect
-            # We do rate limiting with a 5s delay, so sometimes the update
-            # takes at least 5 seconds
-            time.sleep(7)
         finally:
             self._destroy_vdi_after_nbd_disconnect(vdi=vdi)
 
