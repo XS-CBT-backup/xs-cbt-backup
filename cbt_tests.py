@@ -534,7 +534,8 @@ class CBTTestsCLI(object):
                  hostname=None,
                  username=None,
                  password=None,
-                 use_tls=True):
+                 use_tls=True,
+                 skip_vlan_networks=True):
         username = username or os.environ['XS_USERNAME']
         password = password or os.environ['XS_PASSWORD']
         self._cbt_tests = CBTTests(
@@ -542,7 +543,8 @@ class CBTTestsCLI(object):
             username=username,
             password=password,
             hostname=hostname,
-            use_tls=use_tls)
+            use_tls=use_tls,
+            skip_vlan_networks=skip_vlan_networks)
         self._session = self._cbt_tests._session
 
     def create_test_session(self):
