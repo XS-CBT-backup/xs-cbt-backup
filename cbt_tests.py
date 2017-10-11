@@ -146,14 +146,18 @@ class CBTTests(object):
         vdi = self._session.xenapi.VDI.create(new_vdi_record)
         return vdi
 
-    def get_xapi_nbd_client(self, vdi, auto_enable_nbd=True):
+    def get_xapi_nbd_client(self,
+                            vdi,
+                            auto_enable_nbd=True,
+                            vdi_nbd_server_info=None):
         from xapi_nbd_client import xapi_nbd_client
         return xapi_nbd_client(
             vdi=vdi,
             session=self._session,
             use_tls=self._use_tls,
             auto_enable_nbd=auto_enable_nbd,
-            skip_vlan_networks=self._skip_vlan_networks)
+            skip_vlan_networks=self._skip_vlan_networks,
+            vdi_nbd_server_info=vdi_nbd_server_info)
 
     def _destroy_vdi_after_nbd_disconnect(self,
                                           vdi,
@@ -387,7 +391,11 @@ class CBTTests(object):
                     print("Skipping network {} because VDI {} is not reachable"
                           " through it".format(network, vdi))
                     continue
-                self.get_xapi_nbd_client(vdi=vdi, auto_enable_nbd=False)
+                for vdi_nbd_server_info in infos:
+                    self.get_xapi_nbd_client(
+                        vdi=vdi,
+                        auto_enable_nbd=False,
+                        vdi_nbd_server_info=vdi_nbd_server_info)
         finally:
             self._destroy_vdi_after_nbd_disconnect(vdi=vdi)
 
