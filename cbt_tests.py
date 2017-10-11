@@ -102,7 +102,6 @@ class CBTTests(object):
 
     def __del__(self):
         self.cleanup_test_vdis()
-        self._session.xenapi.session.logout()
 
     def get_certfile(self):
         return self._session.xenapi.host.get_server_certificate(self._host)
@@ -541,6 +540,9 @@ class CBTTestsCLI(object):
             use_tls=use_tls,
             skip_vlan_networks=skip_vlan_networks)
         self._session = self._cbt_tests._session
+
+    def __del__(self):
+        self._session.xenapi.session.logout()
 
     # Create a session that won't be garbage-collected and maybe even logged
     # out after we printed the session ref for the user

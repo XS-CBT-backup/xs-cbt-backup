@@ -1,35 +1,41 @@
 #!/usr/bin/python3
 
 from cbt_tests import CBTTests
+import XenAPI
+
+
+program_name = "backup.py"
 
 
 class Backup(object):
-    def __init__(self, pool_master, username, password, vm_uuid, use_tls=True):
+    def __init__(self, pool_master_address, username, password, vm_uuid, use_tls=True):
         import urllib
         from pathlib import Path
+
+        self._pool_master_address = pool_master_address
+        self._username = username
+        self._password = password
+
+        self._session = XenAPI.Session("http://" + pool_master_address)
+        self._session.xenapi.login_with_password(
+            self._username, self._password, "1.0", program_name)
 
         self._backup_dir = Path.home() / ".cbt_backups"
         self._backup_dir.mkdir(exist_ok=True)
 
-        self._pool_master = pool_master
         # don't use characters that are invalid in filenames
         self._pool_master_dir = self._backup_dir / urllib.parse.quote(
-            pool_master)
+            pool_master_address)
         self._pool_master_dir.mkdir(exist_ok=True)
 
-        self._cbt_lib = CBTTests(
-            pool_master=pool_master,
-            username=username,
-            password=password,
-            use_tls=True)
-        self._session = self._cbt_lib._session
+        self._cbt_lib = CBTTests(session=self._session, use_tls=True)
 
         self._vm = self._session.xenapi.VM.get_by_uuid(vm_uuid)
         self._vm_dir = self._pool_master_dir / vm_uuid
         self._vm_dir.mkdir(exist_ok=True)
 
-        self._username = username
-        self._password = password
+    def __del__(self):
+        self._session.xenapi.session.logout()
 
     def _get_backup_dirs(self):
         print(
@@ -147,7 +153,7 @@ class Backup(object):
 
     def backup(self):
         print("Backing up VM {} in the pool with master {}".format(
-            self._vm, self._pool_master))
+            self._vm, self._pool_master_address))
         print(
             "Backups of VM {} are stored in {}".format(self._vm, self._vm_dir))
 
