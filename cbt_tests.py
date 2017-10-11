@@ -24,12 +24,21 @@ def has_vlan_pif(session, network):
 def enable_nbd_if_necessary(session, use_tls=True, skip_vlan_networks=True):
     import time
     has_nbd_network = False
+    nbd_purpose = "nbd" if use_tls else "insecure_nbd"
+    conflicting_nbd_purpose = "insecure_nbd" if use_tls else "nbd"
+
     for network in session.xenapi.network.get_all():
         purpose = session.xenapi.network.get_purpose(network)
-        if "nbd" in purpose or "insecure_nbd" in purpose:
+        if nbd_purpose in purpose:
             print("Found network on which NBD ({}) is allowed: {}".format(
                 purpose, network))
             has_nbd_network = True
+        if conflicting_nbd_purpose in purpose:
+            print("WARNING: Found conflicting NBD purpose {} ({}) on"
+                  " network {}, removing it!!!!!!!!".format(
+                      conflicting_nbd_purpose, purpose, network))
+            session.xenapi.network.remove_purpose(network,
+                                                  conflicting_nbd_purpose)
     if not has_nbd_network:
         print("WARNING: Found no network on which NBD is allowed, enabling "
               "secure NBD on ALL NETWORKS!!!!!!!")
@@ -39,7 +48,6 @@ def enable_nbd_if_necessary(session, use_tls=True, skip_vlan_networks=True):
                       format(network))
                 continue
             print("Enabling secure NBD on network {}".format(network))
-            nbd_purpose = "nbd" if use_tls else "insecure_nbd"
             session.xenapi.network.add_purpose(network, nbd_purpose)
         # wait for a bit for the changes to take effect
         # We do rate limiting with a 5s delay, so sometimes the update
