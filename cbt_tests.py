@@ -531,7 +531,7 @@ class CBTTestsCLI(object):
         self._session.xenapi.login_with_password(
             self._username, self._password, "1.0", program_name)
         if sr_uuid is not None:
-            sr = self._session.xenapi.VDI.get_by_uuid(sr_uuid)
+            sr = self._session.xenapi.sr.get_by_uuid(sr_uuid)
         else:
             sr = None
         self._cbt_tests = CBTTests(
