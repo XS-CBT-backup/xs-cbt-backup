@@ -343,6 +343,10 @@ class CBTTests(object):
         print("Enabling secure NBD on network {}".format(network))
         nbd_purpose = "nbd" if self._use_tls else "insecure_nbd"
         self._session.xenapi.network.add_purpose(network, nbd_purpose)
+        # wait for a bit for the changes to take effect
+        # We do rate limiting with a 5s delay, so sometimes the update
+        # takes at least 5 seconds
+        time.sleep(7)
 
     def _disable_nbd_on_all_networks(self):
         import time
