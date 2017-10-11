@@ -340,6 +340,7 @@ class CBTTests(object):
                 print("VDI destroyed")
 
     def _enable_nbd_on_network(self, network):
+        import time
         print("Enabling secure NBD on network {}".format(network))
         nbd_purpose = "nbd" if self._use_tls else "insecure_nbd"
         self._session.xenapi.network.add_purpose(network, nbd_purpose)
