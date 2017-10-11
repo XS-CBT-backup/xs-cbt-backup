@@ -72,6 +72,7 @@ class CBTTests(object):
                  username,
                  password,
                  hostname=None,
+                 sr=None,
                  use_tls=True,
                  skip_vlan_networks=True):
         self._pool_master_address = pool_master_address
@@ -84,6 +85,23 @@ class CBTTests(object):
         else:
             self._host = self._session.xenapi.session.get_this_host(
                 self._session._session) or pool_master_address
+        if sr is not None:
+            self._sr = sr
+        else:
+            # Get an SR that is only attached to this host (not shared), for
+            # testing local SRs
+            pbds = self._session.xenapi.host.get_PBDs(self._host)
+            srs = [
+                self._session.xenapi.PBD.get_SR(pbd) for pbd in pbds
+                if self._session.xenapi.PBD.get_currently_attached(pbd) is True
+            ]
+            user_srs = [
+                sr for sr in srs
+                if sr is not None
+                and self._session.xenapi.SR.get_content_type(sr) == "user"
+                and self._session.xenapi.SR.get_shared(sr) is False
+            ]
+            self._sr = get_first_safely(user_srs)
         self._use_tls = use_tls
         self._skip_vlan_networks = skip_vlan_networks
 
@@ -112,25 +130,10 @@ class CBTTests(object):
 
     def create_test_vdi(self, sr=None, keep_after_exit=False):
         print("Creating a VDI")
-        if sr is None:
-            # Get an SR that is only attached to this host (not shared), for
-            # testing local SRs
-            pbds = self._session.xenapi.host.get_PBDs(self._host)
-            srs = [
-                self._session.xenapi.PBD.get_SR(pbd) for pbd in pbds
-                if self._session.xenapi.PBD.get_currently_attached(pbd) is True
-            ]
-            user_srs = [
-                sr for sr in srs
-                if sr is not None
-                and self._session.xenapi.SR.get_content_type(sr) == "user"
-                and self._session.xenapi.SR.get_shared(sr) is False
-            ]
-            sr = get_first_safely(user_srs)
 
         new_vdi_record = {
             "SR":
-            sr,
+            self._sr,
             "virtual_size":
             40000000,
             "type":
@@ -365,7 +368,6 @@ class CBTTests(object):
         time.sleep(7)
 
     def test_nbd_network_config(self):
-        import time
         vdi = self.create_test_vdi()
         try:
             # test that if we disable NBD on all networks, we cannot connect
@@ -535,18 +537,24 @@ class CBTTests(object):
 class CBTTestsCLI(object):
     def __init__(self,
                  pool_master,
-                 hostname=None,
                  username=None,
                  password=None,
+                 hostname=None,
+                 sr_uuid=None,
                  use_tls=True,
                  skip_vlan_networks=True):
         username = username or os.environ['XS_USERNAME']
         password = password or os.environ['XS_PASSWORD']
+        if sr_uuid is not None:
+            sr = self._session.xenapi.VDI.get_by_uuid(sr_uuid)
+        else:
+            sr = None
         self._cbt_tests = CBTTests(
             pool_master_address=pool_master,
             username=username,
             password=password,
             hostname=hostname,
+            sr=sr,
             use_tls=use_tls,
             skip_vlan_networks=skip_vlan_networks)
         self._session = self._cbt_tests._session
