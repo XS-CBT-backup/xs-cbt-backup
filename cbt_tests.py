@@ -43,7 +43,7 @@ def enable_nbd_if_necessary(session, use_tls=True, skip_vlan_networks=True):
         print("WARNING: Found no network on which NBD is allowed, enabling "
               "secure NBD on ALL NETWORKS!!!!!!!")
         for network in session.xenapi.network.get_all():
-            if has_vlan_pif(session, network) and skip_vlan_networks:
+            if skip_vlan_networks and has_vlan_pif(session, network):
                 print("Skipping network {} because it has a VLAN master PIF".
                       format(network))
                 continue
