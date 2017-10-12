@@ -250,6 +250,8 @@ class CBTTests(object):
     def _test_nbd_server_cleans_up_vbds(self, terminate_while_client_connected,
                                         terminate_command):
         import time
+        # xapi_nbd_client will then enable NBD on all networks, to ensure we'll be able to connect
+        self._disable_nbd_on_all_networks()
 
         vdi = self.create_test_vdi()
         try:
@@ -382,10 +384,11 @@ class CBTTests(object):
 
     def run_ssh_command(self, command):
         import subprocess
+        address = self._session.xenapi.host.get_address(self._host)
         return (subprocess.check_output([
             "sshpass", "-p", "xenroot", "ssh", "-o",
             "UserKnownHostsFile=/dev/null", "-o", "StrictHostKeyChecking=no",
-            "-l", "root", self._host
+            "-l", "root", address
         ] + command))
 
     def control_xapi_nbd_service(self, service_command):
