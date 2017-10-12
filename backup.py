@@ -34,9 +34,6 @@ class Backup(object):
         self._vm_dir = self._pool_master_dir / vm_uuid
         self._vm_dir.mkdir(exist_ok=True)
 
-    def __del__(self):
-        self._session.xenapi.session.logout()
-
     def _get_backup_dirs(self):
         print(
             "Listing subdirectories of the VM backup directory {} corresponding to backups of that VM.".
