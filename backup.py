@@ -116,11 +116,15 @@ class Backup(object):
     def _incremental_vdi_backup(self, vdi, latest_backup, output_file):
         print("Starting an incremental backup for VDI {}".format(vdi))
         import shutil
+        import import subprocess
 
         (vdi_from, vdi_from_backup) = latest_backup
 
         print("Copying from {} to {}".format(vdi_from_backup, output_file))
-        shutil.copy(src=str(vdi_from_backup), dst=str(output_file))
+        try:
+                subprocess.check_output(["cp", "--reflink", str(vdi_from_backup), str(output_file)])
+        except:
+                shutil.copy(src=str(vdi_from_backup), dst=str(output_file))
 
         self._cbt_lib.save_changed_blocks(
             vdi_from=vdi_from, vdi_to=vdi, output_file=output_file)
