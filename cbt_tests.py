@@ -411,7 +411,7 @@ class CBTTests(object):
 
     def download_changed_blocks_in_bitmap_from_nbd(self, vdi, bitmap):
         import base64
-        import from bitstring import BitArray
+        from bitstring import BitArray
 
         bitmap = BitArray(base64.b64decode(bitmap))
         c = self.get_xapi_nbd_client(vdi=vdi)
