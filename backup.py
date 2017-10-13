@@ -116,7 +116,7 @@ class Backup(object):
     def _incremental_vdi_backup(self, vdi, latest_backup, output_file):
         print("Starting an incremental backup for VDI {}".format(vdi))
         import shutil
-        import import subprocess
+        import subprocess
 
         (vdi_from, vdi_from_backup) = latest_backup
 
