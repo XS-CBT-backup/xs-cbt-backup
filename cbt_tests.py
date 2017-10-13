@@ -411,12 +411,13 @@ class CBTTests(object):
 
     def download_changed_blocks_in_bitmap_from_nbd(self, vdi, bitmap):
         import base64
+        import from bitstring import BitArray
 
-        bitmap = base64.b64decode(bitmap)
+        bitmap = BitArray(base64.b64decode(bitmap))
         c = self.get_xapi_nbd_client(vdi=vdi)
         print("Size of network block device: %s" % c.size())
         for i in range(0, len(bitmap) - 1):
-            if bitmap[i] == 1:
+            if (bitmap[i]):
                 offset = i * self.BLOCK_SIZE
                 print("Reading %d bytes from offset %d" % (self.BLOCK_SIZE,
                                                            offset))
