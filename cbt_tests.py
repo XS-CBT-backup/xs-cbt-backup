@@ -461,7 +461,7 @@ class CBTTests(object):
 
     def overwrite_changed_blocks(self, changed_blocks, output_file):
         from pathlib import Path
-        with Path(output_file).open(mode='wb') as out:
+        with Path(output_file).open(mode='ab') as out:
             for (offset, block) in changed_blocks:
                 out.seek(offset)
                 out.write(block)
