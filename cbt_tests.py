@@ -6,6 +6,10 @@ program_name = "cbt_tests.py"
 
 
 def has_vlan_pif(session, network):
+    """
+    Returns true if there is a PIF on this network which is the master PIF of a
+    VLAN.
+    """
     pifs = session.xenapi.network.get_PIFs(network)
     vlan = False
     print("Checking PIFs of network {} to see if it is a VLAN master".format(
