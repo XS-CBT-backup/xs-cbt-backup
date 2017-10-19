@@ -174,7 +174,6 @@ class CBTTests(object):
                        wait_after_disconnect=True,
                        auto_enable_nbd=True):
         if vdi is None:
-            print("Creating a VDI")
             vdi = self.create_test_vdi()
             destroy_op = destroy_op or self._session.xenapi.VDI.destroy
 
