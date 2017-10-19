@@ -513,6 +513,8 @@ class CBTTests(object):
             for vbd in self._session.xenapi.VDI.get_VBDs(vdi):
                 vbd_uuid = self._session.xenapi.VBD.get_uuid(vbd)
                 print("Unplugging VBD {} of VDI {}".format(vbd_uuid, vdi_uuid))
+            # Wait for a bit for the VBD unplug operations to finish
+            time.sleep(2)
             print("Destroying VDI {}".format(vdi_uuid))
             try:
                 self._session.xenapi.VDI.destroy(vdi)
