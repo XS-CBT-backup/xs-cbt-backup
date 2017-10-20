@@ -164,7 +164,7 @@ class CBTTests(object):
             #  ['VDI_IN_USE', 'OpaqueRef:<VDI ref>', 'destroy']
             # if we immediately call VDI.destroy after closing the NBD
             # session, because the VBD has not yet been cleaned up.
-            time.sleep(5)
+            time.sleep(7)
 
         destroy_op(vdi)
 
@@ -385,6 +385,24 @@ class CBTTests(object):
         finally:
             self._destroy_vdi_after_nbd_disconnect(vdi=vdi)
 
+    def test_nbd_timeout(self, timeout=300):
+        import time
+        vdi = self.create_test_vdi()
+        try:
+            c = self.get_xapi_nbd_client(vdi=vdi, auto_enable_nbd=True)
+            sleep = timeout * 2
+            print("waiting for {} seconds".format(sleep))
+            time.sleep(sleep)
+            print("timeout over")
+            try:
+                c.read(0, 512)
+                success = True
+            except:
+                success = False
+            assert (success is False)
+        finally:
+            self._destroy_vdi_after_nbd_disconnect(vdi=vdi)
+
     def run_ssh_command(self, command):
         import subprocess
         address = self._session.xenapi.host.get_address(self._host)
@@ -514,7 +532,7 @@ class CBTTests(object):
                 vbd_uuid = self._session.xenapi.VBD.get_uuid(vbd)
                 print("Unplugging VBD {} of VDI {}".format(vbd_uuid, vdi_uuid))
             # Wait for a bit for the VBD unplug operations to finish
-            time.sleep(2)
+            time.sleep(4)
             print("Destroying VDI {}".format(vdi_uuid))
             try:
                 self._session.xenapi.VDI.destroy(vdi)
@@ -590,6 +608,9 @@ class CBTTestsCLI(object):
 
     def parallel_nbd_connections(self, same_vdi=True, n=100):
         self._cbt_tests.parallel_nbd_connections(same_vdi=same_vdi, n=n)
+
+    def test_nbd_timeout(self, timeout=300):
+        self._cbt_tests.test_nbd_timeout(timeout=timeout)
 
     def verify_xapi_nbd_systemd_service(self, socket_activated=False):
         self._cbt_tests.verify_xapi_nbd_systemd_service(
