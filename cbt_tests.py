@@ -280,21 +280,38 @@ class CBTTests(object):
         self._test_nbd_server_cleans_up_vbds(False, "stop")
         self._test_nbd_server_cleans_up_vbds(True, "restart")
 
-    def loop_connect_disconnect(self, vdi=None, n=1030, random_delays=False):
+    def loop_connect_disconnect(self,
+                                vdi=None,
+                                n=1030,
+                                random_delays=False,
+                                fail_connection=False):
         import time
         import random
+        from new_nbd_client import new_nbd_client
 
         if vdi is None:
             vdi = self.create_test_vdi()
             delete_vdi = True
 
+        if fail_connection:
+            info = self._session.xenapi.VDI.get_nbd_info(vdi)[0]
+
         try:
             for i in range(n):
                 print("{}: connecting to {} on {}".format(i, vdi, self._host))
-                c = self.get_xapi_nbd_client(vdi=vdi)
+                if fail_connection:
+                    try:
+                        new_nbd_client(host=info["address"])
+                    except Exception as e:
+                        print("exception happened")
+                        print(e)
+                        ()
+                else:
+                    c = self.get_xapi_nbd_client(vdi=vdi)
                 if random_delays:
                     time.sleep(random.random())
-                c.close()
+                if not fail_connection:
+                    c.close()
                 if random_delays:
                     time.sleep(random.random())
         finally:
@@ -602,9 +619,16 @@ class CBTTestsCLI(object):
     def test_nbd_network_config(self):
         self._cbt_tests.test_nbd_network_config()
 
-    def loop_connect_disconnect(self, vdi=None, n=1030, random_delays=False):
+    def loop_connect_disconnect(self,
+                                vdi=None,
+                                n=1030,
+                                random_delays=False,
+                                fail_connection=False):
         self._cbt_tests.loop_connect_disconnect(
-            vdi=vdi, n=n, random_delays=random_delays)
+            vdi=vdi,
+            n=n,
+            random_delays=random_delays,
+            fail_connection=fail_connection)
 
     def parallel_nbd_connections(self, same_vdi=True, n=100):
         self._cbt_tests.parallel_nbd_connections(same_vdi=same_vdi, n=n)
