@@ -91,7 +91,7 @@ def assert_protocol(b):
         raise NBDProtocolError
 
 
-class new_nbd_client(object):
+class PythonNbdClient(object):
 
     # Request types
     NBD_CMD_READ = 0
