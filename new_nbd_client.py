@@ -29,6 +29,17 @@ class NBDEOFError(EOFError):
     pass
 
 
+class NBDTransmissionError(Exception):
+    """
+    The NBD server returned a non-zero error value in its response to a
+    request.
+
+    :attribute error_code: The error code returned by the server.
+    """
+    def __init__(self, error_code):
+        self.error_code = error_code
+
+
 class new_nbd_client(object):
 
     # Request types
@@ -205,7 +216,9 @@ class new_nbd_client(object):
         self._handle += 1
         data = self._recvall(length=data_length)
         print("NBD response received data_length=%d bytes" % data_length)
-        return (data, errno)
+        if errno != 0:
+            raise NBDTransmissionError(errno)
+        return data
 
     def _check_value(self, name, value):
         if not value % 512:
@@ -220,8 +233,7 @@ class new_nbd_client(object):
         header = self._build_request_header(self.NBD_CMD_WRITE, offset,
                                             len(data))
         self._s.sendall(header + data)
-        (_, errno) = self._parse_reply()
-        assert (errno == 0)
+        self._parse_reply()
         return len(data)
 
     def read(self, offset, length):
@@ -230,8 +242,7 @@ class new_nbd_client(object):
         self._check_value("length", length)
         header = self._build_request_header(self.NBD_CMD_READ, offset, length)
         self._s.sendall(header)
-        (data, errno) = self._parse_reply(length)
-        assert (errno == 0)
+        data = self._parse_reply(length)
         return data
 
     def need_flush(self):
@@ -247,9 +258,8 @@ class new_nbd_client(object):
             return True
         header = self._build_request_header(self.NBD_CMD_FLUSH, 0, 0)
         self._s.sendall(header)
-        (_, errno) = self._parse_reply()
-        if not errno:
-            self._flushed = True
+        self._parse_reply()
+        self._flushed = True
         return errno == 0
 
     def _disconnect(self):
