@@ -316,7 +316,6 @@ class new_nbd_client(object):
         self._s.sendall(header)
         self._parse_reply()
         self._flushed = True
-        return errno == 0
 
     def _disconnect(self):
         print("NBD_CMD_DISC")
