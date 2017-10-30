@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import time
 
 program_name = "cbt_tests.py"
 
@@ -10,53 +11,33 @@ def has_vlan_pif(session, network):
     Returns true if there is a PIF on this network which is the master PIF of a
     VLAN.
     """
-    pifs = session.xenapi.network.get_PIFs(network)
-    vlan = False
-    print("Checking PIFs of network {} to see if it is a VLAN master".format(
-        network))
-    for pif in pifs:
-        print("Checking PIF {} of network {} to see if it is a VLAN master".
-              format(pif, network))
-        vlan_master_of = session.xenapi.PIF.get_VLAN_master_of(pif)
-        print(vlan_master_of)
-        if vlan_master_of != "OpaqueRef:NULL":
-            print("Network {} has a VLAN PIF {}".format(network, pif))
-            vlan = True
-    return vlan
+    for pif in session.xenapi.network.get_PIFs(network):
+        if session.xenapi.PIF.get_VLAN_master_of(pif) != "OpaqueRef:NULL":
+            return True
+    return False
 
 
 def enable_nbd_if_necessary(session, use_tls=True, skip_vlan_networks=True):
-    import time
-    has_nbd_network = False
-    nbd_purpose = "nbd" if use_tls else "insecure_nbd"
-    conflicting_nbd_purpose = "insecure_nbd" if use_tls else "nbd"
-
-    for network in session.xenapi.network.get_all():
+    (nbd_purpose, conflicting_nbd_purpose) = (
+        "nbd", "insecure_nbd") if use_tls else ("insecure_nbd", "nbd")
+    networks = session.xenapi.network.get_all()
+    for network in networks:
         purpose = session.xenapi.network.get_purpose(network)
         if nbd_purpose in purpose:
-            print("Found network on which NBD ({}) is allowed: {}".format(
-                purpose, network))
-            has_nbd_network = True
+            return
         if conflicting_nbd_purpose in purpose:
-            print("WARNING: Found conflicting NBD purpose {} ({}) on"
-                  " network {}, removing it!!!!!!!!".format(
-                      conflicting_nbd_purpose, purpose, network))
             session.xenapi.network.remove_purpose(network,
                                                   conflicting_nbd_purpose)
-    if not has_nbd_network:
-        print("WARNING: Found no network on which NBD is allowed, enabling "
-              "secure NBD on ALL NETWORKS!!!!!!!")
-        for network in session.xenapi.network.get_all():
-            if skip_vlan_networks and has_vlan_pif(session, network):
-                print("Skipping network {} because it has a VLAN master PIF".
-                      format(network))
-                continue
-            print("Enabling secure NBD on network {}".format(network))
-            session.xenapi.network.add_purpose(network, nbd_purpose)
-        # wait for a bit for the changes to take effect
-        # We do rate limiting with a 5s delay, so sometimes the update
-        # takes at least 5 seconds
-        time.sleep(7)
+    for network in networks:
+        if skip_vlan_networks and has_vlan_pif(session, network):
+            print("Skipping network {} because it has a VLAN master PIF".
+                  format(network))
+            continue
+        session.xenapi.network.add_purpose(network, nbd_purpose)
+    # wait for a bit for the changes to take effect
+    # We do rate limiting with a 5s delay, so sometimes the update
+    # takes at least 5 seconds
+    time.sleep(7)
 
 
 def get_first_safely(iterable):
@@ -295,17 +276,13 @@ class CBTTests(object):
 
         if fail_connection:
             info = self._session.xenapi.VDI.get_nbd_info(vdi)[0]
+            info["exportname"] = "invalid export name"
 
         try:
             for i in range(n):
                 print("{}: connecting to {} on {}".format(i, vdi, self._host))
                 if fail_connection:
-                    try:
-                        new_nbd_client(host=info["address"])
-                    except Exception as e:
-                        print("exception happened")
-                        print(e)
-                        ()
+                    self.get_xapi_nbd_client(vdi_nbd_server_info=info)
                 else:
                     c = self.get_xapi_nbd_client(vdi=vdi)
                 if random_delays:
