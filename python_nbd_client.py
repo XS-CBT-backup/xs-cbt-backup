@@ -16,6 +16,10 @@
 # added support for (non-fixed) newstyle negotation,
 # then @thomasmck added support for fixed-newstyle negotiation and TLS
 
+"""
+A pure-Python NBD client.
+"""
+
 import socket
 import struct
 import ssl
@@ -37,6 +41,8 @@ class NBDTransmissionError(Exception):
     :attribute error_code: The error code returned by the server.
     """
     def __init__(self, error_code):
+        super().__init__("Server returned error during transmission: {}"
+                         .format(error_code))
         self.error_code = error_code
 
 
@@ -47,6 +53,8 @@ class NBDOptionError(Exception):
     :attribute reply: The error reply sent by the server.
     """
     def __init__(self, reply):
+        super().__init__("Server returned error during option haggling: {}"
+                         .format(reply))
         self.reply = reply
 
 
@@ -60,6 +68,9 @@ class NBDUnexpectedOptionResponseError(Exception):
     :attribute received: The server's response is a reply to this option.
     """
     def __init__(self, expected, received):
+        super().__init__("Received response to unexpected option {}; "
+                         "was expecting a response to option {}"
+                         .format(received, expected))
         self.expected = expected
         self.received = received
 
@@ -74,6 +85,10 @@ class NBDUnexpectedReplyHandleError(Exception):
     :attribute received: The server's reply contained this handle.
     """
     def __init__(self, expected, received):
+        super().__init__("Received reply with unexpected handle {}; "
+                         "was expecting a response to the request with "
+                         "handle {}"
+                         .format(received, expected))
         self.expected = expected
         self.received = received
 
@@ -86,12 +101,23 @@ class NBDProtocolError(Exception):
     pass
 
 
-def assert_protocol(b):
-    if b is False:
+def _assert_protocol(assertion):
+    if assertion is False:
         raise NBDProtocolError
 
 
+def _check_alignment(name, value):
+    if not value % 512:
+        return
+    raise ValueError("%s=%i is not a multiple of 512" % (name, value))
+
+
 class PythonNbdClient(object):
+    """
+    A pure-Python NBD client. Supports both the fixed-newstyle and the
+    oldstyle negotiation, and also has support for upgrading the
+    connection to TLS during fixed-newstyle negotiation.
+    """
 
     # Request types
     NBD_CMD_READ = 0
@@ -132,13 +158,15 @@ class PythonNbdClient(object):
         self._flushed = True
         self._closed = True
         self._handle = 0
-        self._cert = cert
-        self._subject = subject
+        self._last_sent_option = None
         self._s = socket.create_connection(address=(address, port), timeout=30)
         self._closed = False
         if new_style_handshake:
             self._fixed_new_style_handshake(
-                exportname=exportname, use_tls=use_tls)
+                exportname=exportname,
+                cert=cert,
+                subject=subject,
+                use_tls=use_tls)
         else:
             self._old_style_handshake()
 
@@ -146,6 +174,10 @@ class PythonNbdClient(object):
         self.close()
 
     def close(self):
+        """
+        Sends a flush request to the server if necessary and the server
+        supports it, followed by a disconnect request.
+        """
         if not self._flushed:
             self.flush()
         if not self._closed:
@@ -155,10 +187,12 @@ class PythonNbdClient(object):
     def _recvall(self, length):
         data = bytes()
         while len(data) < length:
-            b = self._s.recv(length - len(data))
-            if (len(b) == 0):
+            received = self._s.recv(length - len(data))
+            # If recv reads 0 bytes, that means the peer has properly
+            # shut down the TCP session (end-of-file error):
+            if not received:
                 raise NBDEOFError
-            data = data + b
+            data = data + received
         assert len(data) == length
         return data
 
@@ -169,7 +203,7 @@ class PythonNbdClient(object):
         self._s.sendall(b'IHAVEOPT')
         header = struct.pack(">LL", option, data_length)
         self._s.sendall(header + data)
-        self._option = option
+        self._last_sent_option = option
 
     def _parse_option_reply(self):
         print("NBD parsing option reply")
@@ -178,16 +212,16 @@ class PythonNbdClient(object):
             ">QLLL", reply)
         print("NBD reply magic='%x' option='%d' reply_type='%d'" %
               (magic, option, reply_type))
-        assert_protocol(magic == self.OPTION_REPLY_MAGIC)
-        if (option != self._option):
+        _assert_protocol(magic == self.OPTION_REPLY_MAGIC)
+        if option != self._last_sent_option:
             raise NBDUnexpectedOptionResponseError(
-                expected=self._option, received=option)
+                expected=self._last_sent_option, received=option)
         if reply_type != self.NBD_REP_ACK:
             raise NBDOptionError(reply=reply_type)
         data = self._recvall(data_length)
         return data
 
-    def _upgrade_socket_to_TLS(self):
+    def _upgrade_socket_to_tls(self, cert, subject):
         # Forcing the client to use TLSv1_2
         context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
         context.options &= ~ssl.OP_NO_TLSv1
@@ -195,39 +229,39 @@ class PythonNbdClient(object):
         context.options &= ~ssl.OP_NO_SSLv2
         context.options &= ~ssl.OP_NO_SSLv3
         context.verify_mode = ssl.CERT_REQUIRED
-        context.check_hostname = (self._subject is not None)
-        context.load_verify_locations(cadata=self._cert)
+        context.check_hostname = (subject is not None)
+        context.load_verify_locations(cadata=cert)
         cleartext_socket = self._s
         self._s = context.wrap_socket(
             cleartext_socket,
             server_side=False,
             do_handshake_on_connect=True,
-            server_hostname=self._subject)
+            server_hostname=subject)
 
-    def _initiate_TLS_upgrade(self):
+    def _initiate_tls_upgrade(self):
         # start TLS negotiation
         self._send_option(self.NBD_OPT_STARTTLS)
         # receive reply
         data = self._parse_option_reply()
-        assert_protocol(len(data) == 0)
+        _assert_protocol(len(data) == 0)
 
-    def _fixed_new_style_handshake(self, exportname, use_tls):
+    def _fixed_new_style_handshake(self, exportname, cert, subject, use_tls):
         nbd_magic = self._recvall(len("NBDMAGIC"))
-        assert_protocol(nbd_magic == b'NBDMAGIC')
+        _assert_protocol(nbd_magic == b'NBDMAGIC')
         nbd_magic = self._recvall(len("IHAVEOPT"))
-        assert_protocol(nbd_magic == b'IHAVEOPT')
+        _assert_protocol(nbd_magic == b'IHAVEOPT')
         buf = self._recvall(2)
         self._flags = struct.unpack(">H", buf)[0]
-        assert_protocol(self._flags & self.NBD_FLAG_HAS_FLAGS != 0)
+        _assert_protocol(self._flags & self.NBD_FLAG_HAS_FLAGS != 0)
         client_flags = self.NBD_FLAG_C_FIXED_NEWSTYLE
         client_flags = struct.pack('>L', client_flags)
         self._s.sendall(client_flags)
 
         if use_tls:
             # start TLS negotiation
-            self._initiate_TLS_upgrade()
+            self._initiate_tls_upgrade()
             # upgrade socket to TLS
-            self._upgrade_socket_to_TLS()
+            self._upgrade_socket_to_tls(cert, subject)
 
         # request export
         self._send_option(self.NBD_OPT_EXPORT_NAME, str.encode(exportname))
@@ -245,19 +279,19 @@ class PythonNbdClient(object):
 
     def _old_style_handshake(self):
         nbd_magic = self._recvall(len("NBDMAGIC"))
-        assert_protocol(nbd_magic == b'NBDMAGIC')
+        _assert_protocol(nbd_magic == b'NBDMAGIC')
         buf = self._recvall(8 + 8 + 4)
         (magic, self._size, self._flags) = struct.unpack(">QQL", buf)
-        assert_protocol(magic == 0x00420281861253)
+        _assert_protocol(magic == 0x00420281861253)
         # ignore trailing zeroes
         self._recvall(124)
 
-    def _build_request_header(self, request_type, offset, length):
+    def _send_request_header(self, request_type, offset, length):
         print("NBD request offset=%d length=%d" % (offset, length))
         command_flags = 0
         header = struct.pack('>LHHQQL', self.NBD_REQUEST_MAGIC, command_flags,
                              request_type, self._handle, offset, length)
-        return header
+        self._s.sendall(header)
 
     def _parse_reply(self, data_length=0):
         print("NBD parsing response, data_length=%d" % data_length)
@@ -265,7 +299,7 @@ class PythonNbdClient(object):
         (magic, errno, handle) = struct.unpack(">LLQ", reply)
         print("NBD response magic='%x' errno='%d' handle='%d'" % (magic, errno,
                                                                   handle))
-        assert_protocol(magic == self.NBD_REPLY_MAGIC)
+        _assert_protocol(magic == self.NBD_REPLY_MAGIC)
         if handle != self._handle:
             raise NBDUnexpectedReplyHandleError(
                 expected=self._handle, received=handle)
@@ -276,51 +310,56 @@ class PythonNbdClient(object):
             raise NBDTransmissionError(errno)
         return data
 
-    def _check_value(self, name, value):
-        if not value % 512:
-            return
-        raise ValueError("%s=%i is not a multiple of 512" % (name, value))
-
     def write(self, data, offset):
+        """
+        Writes the given bytes to the export, starting at the given
+        offset.
+        """
         print("NBD_CMD_WRITE")
-        self._check_value("offset", offset)
-        self._check_value("size", len(data))
+        _check_alignment("offset", offset)
+        _check_alignment("size", len(data))
         self._flushed = False
-        header = self._build_request_header(self.NBD_CMD_WRITE, offset,
-                                            len(data))
-        self._s.sendall(header + data)
+        self._send_request_header(self.NBD_CMD_WRITE, offset, len(data))
+        self._s.sendall(data)
         self._parse_reply()
         return len(data)
 
     def read(self, offset, length):
+        """
+        Returns length number of bytes read from the export, starting at
+        the given offset.
+        """
         print("NBD_CMD_READ")
-        self._check_value("offset", offset)
-        self._check_value("length", length)
-        header = self._build_request_header(self.NBD_CMD_READ, offset, length)
-        self._s.sendall(header)
+        _check_alignment("offset", offset)
+        _check_alignment("length", length)
+        self._send_request_header(self.NBD_CMD_READ, offset, length)
         data = self._parse_reply(length)
         return data
 
-    def need_flush(self):
-        if self._flags & self.NBD_FLAG_SEND_FLUSH != 0:
-            return True
-        else:
-            return False
+    def _need_flush(self):
+        return self._flags & self.NBD_FLAG_SEND_FLUSH != 0
 
     def flush(self):
+        """
+        Sends a flush request to the server if the server supports it
+        and there are unflushed writes. This causes all completed writes
+        (the writes for which the server has already sent a reply to the
+        client) to be written to permanent storage.
+        """
         print("NBD_CMD_FLUSH")
-        if self.need_flush() is False:
+        if self._need_flush() is False:
             self._flushed = True
             return True
-        header = self._build_request_header(self.NBD_CMD_FLUSH, 0, 0)
-        self._s.sendall(header)
+        self._send_request_header(self.NBD_CMD_FLUSH, 0, 0)
         self._parse_reply()
         self._flushed = True
 
     def _disconnect(self):
         print("NBD_CMD_DISC")
-        header = self._build_request_header(self.NBD_CMD_DISC, 0, 0)
-        self._s.sendall(header)
+        self._send_request_header(self.NBD_CMD_DISC, 0, 0)
 
     def size(self):
+        """
+        Return the size of the device in bytes.
+        """
         return self._size
