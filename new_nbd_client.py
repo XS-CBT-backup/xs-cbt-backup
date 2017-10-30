@@ -22,6 +22,10 @@ import ssl
 
 
 class NBDEOFError(EOFError):
+    """
+    An end of file error happened while reading from the socket, because it has
+    been closed.
+    """
     pass
 
 
@@ -71,7 +75,8 @@ class new_nbd_client(object):
         self._s = socket.create_connection((address, port))
         self._closed = False
         if new_style_handshake:
-            self._fixed_new_style_handshake(exportname=exportname, use_tls=use_tls)
+            self._fixed_new_style_handshake(
+                exportname=exportname, use_tls=use_tls)
         else:
             self._old_style_handshake()
 
