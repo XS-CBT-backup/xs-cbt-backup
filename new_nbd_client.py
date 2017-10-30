@@ -40,6 +40,57 @@ class NBDTransmissionError(Exception):
         self.error_code = error_code
 
 
+class NBDOptionError(Exception):
+    """
+    The NBD server replied with an error to the option sent by the client.
+
+    :attribute reply: The error reply sent by the server.
+    """
+    def __init__(self, reply):
+        self.reply = reply
+
+
+class NBDUnexpectedOptionResponseError(Exception):
+    """
+    The NBD server sent a response to an option different from the most recent
+    one that the client is expecting a response to.
+
+    :attribute expected: The option that was last sent by the client, to which
+                         it is expecting a response.
+    :attribute received: The server's response is a reply to this option.
+    """
+    def __init__(self, expected, received):
+        self.expected = expected
+        self.received = received
+
+
+class NBDUnexpectedReplyHandleError(Exception):
+    """
+    The NBD server sent a reply to a request different from the most recent one
+    that the client is expecting a response to.
+
+    :attribute expected: The handle of the most recent request that the client
+                         is expecting a reply to.
+    :attribute received: The server's reply contained this handle.
+    """
+    def __init__(self, expected, received):
+        self.expected = expected
+        self.received = received
+
+
+class NBDProtocolError(Exception):
+    """
+    The NBD server sent an invalid response that is not allowed by the NBD
+    protocol.
+    """
+    pass
+
+
+def assert_protocol(b):
+    if b is False:
+        raise NBDProtocolError
+
+
 class new_nbd_client(object):
 
     # Request types
@@ -108,7 +159,7 @@ class new_nbd_client(object):
             if (len(b) == 0):
                 raise NBDEOFError
             data = data + b
-        assert (len(data) == length)
+        assert len(data) == length
         return data
 
     def _send_option(self, option, data=b''):
@@ -127,9 +178,12 @@ class new_nbd_client(object):
             ">QLLL", reply)
         print("NBD reply magic='%x' option='%d' reply_type='%d'" %
               (magic, option, reply_type))
-        assert (magic == self.OPTION_REPLY_MAGIC)
-        assert (option == self._option)
-        assert (reply_type == self.NBD_REP_ACK)
+        assert_protocol(magic == self.OPTION_REPLY_MAGIC)
+        if (option != self._option):
+            raise NBDUnexpectedOptionResponseError(
+                expected=self._option, received=option)
+        if reply_type != self.NBD_REP_ACK:
+            raise NBDOptionError(reply=reply_type)
         data = self._recvall(data_length)
         return data
 
@@ -155,16 +209,16 @@ class new_nbd_client(object):
         self._send_option(self.NBD_OPT_STARTTLS)
         # receive reply
         data = self._parse_option_reply()
-        assert (len(data) == 0)
+        assert_protocol(len(data) == 0)
 
     def _fixed_new_style_handshake(self, exportname, use_tls):
         nbd_magic = self._recvall(len("NBDMAGIC"))
-        assert (nbd_magic == b'NBDMAGIC')
+        assert_protocol(nbd_magic == b'NBDMAGIC')
         nbd_magic = self._recvall(len("IHAVEOPT"))
-        assert (nbd_magic == b'IHAVEOPT')
+        assert_protocol(nbd_magic == b'IHAVEOPT')
         buf = self._recvall(2)
         self._flags = struct.unpack(">H", buf)[0]
-        assert (self._flags & self.NBD_FLAG_HAS_FLAGS != 0)
+        assert_protocol(self._flags & self.NBD_FLAG_HAS_FLAGS != 0)
         client_flags = self.NBD_FLAG_C_FIXED_NEWSTYLE
         client_flags = struct.pack('>L', client_flags)
         self._s.sendall(client_flags)
@@ -191,10 +245,10 @@ class new_nbd_client(object):
 
     def _old_style_handshake(self):
         nbd_magic = self._recvall(len("NBDMAGIC"))
-        assert (nbd_magic == b'NBDMAGIC')
+        assert_protocol(nbd_magic == b'NBDMAGIC')
         buf = self._recvall(8 + 8 + 4)
         (magic, self._size, self._flags) = struct.unpack(">QQL", buf)
-        assert (magic == 0x00420281861253)
+        assert_protocol(magic == 0x00420281861253)
         # ignore trailing zeroes
         self._recvall(124)
 
@@ -211,8 +265,10 @@ class new_nbd_client(object):
         (magic, errno, handle) = struct.unpack(">LLQ", reply)
         print("NBD response magic='%x' errno='%d' handle='%d'" % (magic, errno,
                                                                   handle))
-        assert (magic == self.NBD_REPLY_MAGIC)
-        assert (handle == self._handle)
+        assert_protocol(magic == self.NBD_REPLY_MAGIC)
+        if handle != self._handle:
+            raise NBDUnexpectedReplyHandleError(
+                expected=self._handle, received=handle)
         self._handle += 1
         data = self._recvall(length=data_length)
         print("NBD response received data_length=%d bytes" % data_length)
