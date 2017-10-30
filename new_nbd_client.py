@@ -21,6 +21,10 @@ import struct
 import ssl
 
 
+class NBDEOFError(EOFError):
+    pass
+
+
 class new_nbd_client(object):
 
     # Request types
@@ -84,7 +88,10 @@ class new_nbd_client(object):
     def _recvall(self, length):
         data = bytes()
         while len(data) < length:
-            data = data + self._s.recv(length - len(data))
+            b = self._s.recv(length - len(data))
+            if (len(b) == 0):
+                raise NBDEOFError
+            data = data + b
         assert (len(data) == length)
         return data
 
