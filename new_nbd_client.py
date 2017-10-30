@@ -49,18 +49,25 @@ class new_nbd_client(object):
     NBD_REQUEST_MAGIC = 0x25609513
     NBD_REPLY_MAGIC = 0x67446698
 
-    def __init__(self, host, export_name="", port=10809, ca_cert=None, subject=None, new_style_handshake=True):
+    def __init__(self,
+                 address,
+                 exportname="",
+                 port=10809,
+                 subject=None,
+                 cert=None,
+                 use_tls=True,
+                 new_style_handshake=True):
         print("Connecting to export '{}' on host '{}' and port '{}'"
-              .format(export_name, host, port))
+              .format(exportname, address, port))
         self._flushed = True
         self._closed = True
         self._handle = 0
-        self._ca_cert = ca_cert
+        self._cert = cert
         self._subject = subject
-        self._s = socket.create_connection((host, port))
+        self._s = socket.create_connection((address, port))
         self._closed = False
         if new_style_handshake:
-            self._fixed_new_style_handshake(export_name)
+            self._fixed_new_style_handshake(exportname=exportname, use_tls=use_tls)
         else:
             self._old_style_handshake()
 
@@ -112,10 +119,13 @@ class new_nbd_client(object):
         context.options &= ~ssl.OP_NO_SSLv3
         context.verify_mode = ssl.CERT_REQUIRED
         context.check_hostname = (self._subject is not None)
-        context.load_verify_locations(cadata=self._ca_cert)
+        context.load_verify_locations(cadata=self._cert)
         cleartext_socket = self._s
         self._s = context.wrap_socket(
-            cleartext_socket, server_side=False, do_handshake_on_connect=True, server_hostname=self._subject)
+            cleartext_socket,
+            server_side=False,
+            do_handshake_on_connect=True,
+            server_hostname=self._subject)
 
     def _initiate_TLS_upgrade(self):
         # start TLS negotiation
@@ -124,7 +134,7 @@ class new_nbd_client(object):
         data = self._parse_option_reply()
         assert (len(data) == 0)
 
-    def _fixed_new_style_handshake(self, export_name):
+    def _fixed_new_style_handshake(self, exportname, use_tls):
         nbd_magic = self._recvall(len("NBDMAGIC"))
         assert (nbd_magic == b'NBDMAGIC')
         nbd_magic = self._recvall(len("IHAVEOPT"))
@@ -136,14 +146,14 @@ class new_nbd_client(object):
         client_flags = struct.pack('>L', client_flags)
         self._s.sendall(client_flags)
 
-        if self._ca_cert:
+        if use_tls:
             # start TLS negotiation
             self._initiate_TLS_upgrade()
             # upgrade socket to TLS
             self._upgrade_socket_to_TLS()
 
         # request export
-        self._send_option(self.NBD_OPT_EXPORT_NAME, str.encode(export_name))
+        self._send_option(self.NBD_OPT_EXPORT_NAME, str.encode(exportname))
 
         # non-fixed newstyle negotiation: we get this if the server is willing
         # to allow the export
@@ -158,10 +168,10 @@ class new_nbd_client(object):
 
     def _old_style_handshake(self):
         nbd_magic = self._recvall(len("NBDMAGIC"))
-        assert(nbd_magic == b'NBDMAGIC')
+        assert (nbd_magic == b'NBDMAGIC')
         buf = self._recvall(8 + 8 + 4)
         (magic, self._size, self._flags) = struct.unpack(">QQL", buf)
-        assert(magic == 0x00420281861253)
+        assert (magic == 0x00420281861253)
         # ignore trailing zeroes
         self._recvall(124)
 

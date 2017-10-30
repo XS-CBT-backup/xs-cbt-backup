@@ -29,19 +29,4 @@ class xapi_nbd_client(new_nbd_client):
             pp('Using the following:')
             pp(vdi_nbd_server_info)
 
-        host = vdi_nbd_server_info["address"]
-        export_name = vdi_nbd_server_info["exportname"]
-        port = vdi_nbd_server_info["port"]
-        subject = vdi_nbd_server_info["subject"]
-        if use_tls:
-            ca_cert = vdi_nbd_server_info["cert"]
-        else:
-            ca_cert = None
-
-        new_nbd_client.__init__(
-            self,
-            host=host,
-            export_name=export_name,
-            port=port,
-            ca_cert=ca_cert,
-            subject=subject)
+        new_nbd_client.__init__(self, **vdi_nbd_server_info, use_tls=use_tls)
