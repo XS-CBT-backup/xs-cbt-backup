@@ -16,7 +16,7 @@ def _has_vlan_pif(session, network):
     return False
 
 
-def wait_for_firewall_changes():
+def wait_after_nbd_network_changes():
     """
     Wait for a bit for the changes to take effect.
     We do rate limiting with a 5s delay, so sometimes the update
@@ -44,7 +44,7 @@ def auto_enable_nbd(session, use_tls=True, skip_vlan_networks=True):
     for network in networks:
         if not (skip_vlan_networks and _has_vlan_pif(session, network)):
             session.xenapi.network.add_purpose(network, nbd_purpose)
-    wait_for_firewall_changes()
+    wait_after_nbd_network_changes()
 
 
 def _disable_nbd_on_all_networks(session):
@@ -52,4 +52,4 @@ def _disable_nbd_on_all_networks(session):
         session.xenapi.network.remove_purpose(network, "nbd")
         session.xenapi.network.remove_purpose(
             network, "insecure_nbd")
-    wait_for_firewall_changes()
+    wait_after_nbd_network_changes()
