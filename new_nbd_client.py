@@ -134,7 +134,7 @@ class new_nbd_client(object):
         self._handle = 0
         self._cert = cert
         self._subject = subject
-        self._s = socket.create_connection((address, port))
+        self._s = socket.create_connection(address=(address, port), timeout=30)
         self._closed = False
         if new_style_handshake:
             self._fixed_new_style_handshake(
