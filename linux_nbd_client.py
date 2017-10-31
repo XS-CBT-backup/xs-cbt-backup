@@ -7,6 +7,13 @@ import tempfile
 import os
 
 
+class NoNbdDeviceAvailable(Exception):
+    """
+    All of the /dev/nbdX devices are connected, according to nbd-client.
+    """
+    pass
+
+
 def _write_cert_to_file(cert):
     certfile = tempfile.NamedTemporaryFile()
     certfile.write(cert)
@@ -44,6 +51,18 @@ def disconnect_connected_devices(nbd_devices=16):
             disconnect_nbd_device(nbd_device=nbd_device)
 
 
+def find_unused_nbd_device(nbd_devices=16):
+    """
+    Returns the path of the first /dev/nbdX device that is not
+    connected according to nbd-client.
+    """
+    for device_no in range(0, nbd_devices):
+        nbd_device = "/dev/nbd{}".format(device_no)
+        if not is_nbd_device_connected(nbd_device=nbd_device):
+            return nbd_device
+    raise NoNbdDeviceAvailable
+
+
 class LinuxNbdClient(object):
     """
     Python code wrapping an nbd-client connection.
@@ -60,6 +79,10 @@ class LinuxNbdClient(object):
                  timeout=None,
                  use_socket_direct_protocol=False,
                  persist=True):
+
+        if nbd_device is None:
+            nbd_device = find_unused_nbd_device()
+
         command = ['nbd-client', '-name', exportname,
                    address, port, nbd_device]
         if block_size is not None:
