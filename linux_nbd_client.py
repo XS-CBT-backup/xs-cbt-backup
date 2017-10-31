@@ -13,6 +13,20 @@ def _write_cert_to_file(cert):
     return certfile.name
 
 
+def is_nbd_device_connected(nbd_device):
+    """
+    Checks whether the specified nbd device is connected according to
+    nbd-client.
+    """
+    cmd = ['nbd-client', '-c', nbd_device]
+    returncode = subprocess.run(cmd).returncode
+    if returncode == 0:
+        return True
+    if returncode == 1:
+        return False
+    raise subprocess.CalledProcessError(returncode=returncode, cmd=cmd)
+
+
 class LinuxNbdClient(object):
     """
     Python code wrapping an nbd-client connection.
