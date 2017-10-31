@@ -27,6 +27,23 @@ def is_nbd_device_connected(nbd_device):
     raise subprocess.CalledProcessError(returncode=returncode, cmd=cmd)
 
 
+def disconnect_nbd_device(nbd_device):
+    """
+    Disconnects the given device using nbd-client
+    """
+    subprocess.check_output(['nbd-client', '-d', nbd_device])
+
+
+def disconnect_connected_devices(nbd_devices=16):
+    """
+    Disconnects all the connected /dev/nbdX devices using nbd-client.
+    """
+    for device_no in range(0, nbd_devices):
+        nbd_device = "/dev/nbd{}".format(device_no)
+        if is_nbd_device_connected(nbd_device=nbd_device):
+            disconnect_nbd_device(nbd_device=nbd_device)
+
+
 class LinuxNbdClient(object):
     """
     Python code wrapping an nbd-client connection.
