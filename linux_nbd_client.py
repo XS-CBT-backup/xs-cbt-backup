@@ -2,16 +2,11 @@
 A Python wrapper around the nbd-client native Linux program.
 """
 
-import subprocess
-import tempfile
 import os
-
-
-class NoNbdDeviceAvailable(Exception):
-    """
-    All of the /dev/nbdX devices are connected, according to nbd-client.
-    """
-    pass
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
 
 
 def _write_cert_to_file(cert):
@@ -25,6 +20,10 @@ def is_nbd_device_connected(nbd_device):
     Checks whether the specified nbd device is connected according to
     nbd-client.
     """
+    # First check if the file exists, because "nbd-client -c" returns
+    # 1 for a non-existent file.
+    if not Path(nbd_device).exists():
+        raise FileNotFoundError
     cmd = ['nbd-client', '-c', nbd_device]
     returncode = subprocess.run(cmd).returncode
     if returncode == 0:
@@ -41,26 +40,28 @@ def disconnect_nbd_device(nbd_device):
     subprocess.check_output(['nbd-client', '-d', nbd_device])
 
 
-def disconnect_connected_devices(nbd_devices=16):
+def disconnect_connected_devices():
     """
     Disconnects all the connected /dev/nbdX devices using nbd-client.
     """
-    for device_no in range(0, nbd_devices):
-        nbd_device = "/dev/nbd{}".format(device_no)
-        if is_nbd_device_connected(nbd_device=nbd_device):
-            disconnect_nbd_device(nbd_device=nbd_device)
+    try:
+        for device_no in range(0, sys.maxsize):
+            nbd_device = "/dev/nbd{}".format(device_no)
+            if is_nbd_device_connected(nbd_device=nbd_device):
+                disconnect_nbd_device(nbd_device=nbd_device)
+    except FileNotFoundError:
+        pass
 
 
-def find_unused_nbd_device(nbd_devices=16):
+def find_unused_nbd_device():
     """
     Returns the path of the first /dev/nbdX device that is not
     connected according to nbd-client.
     """
-    for device_no in range(0, nbd_devices):
+    for device_no in range(0, sys.maxsize):
         nbd_device = "/dev/nbd{}".format(device_no)
         if not is_nbd_device_connected(nbd_device=nbd_device):
             return nbd_device
-    raise NoNbdDeviceAvailable
 
 
 class LinuxNbdClient(object):
