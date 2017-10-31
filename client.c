@@ -54,7 +54,7 @@ int main(int argc, char* argv[])
   fixed_newstyle_handshake(sock, buf);
 
   // SEGFAULT:
-  //puts((char*)432);
+  puts((char*)432);
   close(sock);
   return 0;
 }
