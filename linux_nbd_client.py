@@ -37,7 +37,9 @@ def disconnect_nbd_device(nbd_device):
     """
     Disconnects the given device using nbd-client
     """
-    subprocess.check_output(['nbd-client', '-d', nbd_device])
+    cmd = ['nbd-client', '-d', nbd_device]
+    print(cmd)
+    subprocess.check_output(cmd)
 
 
 def disconnect_connected_devices():
@@ -135,7 +137,7 @@ class LinuxNbdClient(object):
             fin.read(length)
 
     def _disconnect(self):
-        subprocess.check_output(['nbd-client', '-d', self.nbd_device])
+        disconnect_nbd_device(nbd_device=self.nbd_device)
 
     def flush(self):
         """
