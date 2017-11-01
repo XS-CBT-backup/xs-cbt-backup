@@ -58,10 +58,10 @@ def wait_after_nbd_disconnect():
 
 class CBTTests(object):
     # 64K blocks
-    BLOCK_SIZE = 64 * 1024
+    _BLOCK_SIZE = 64 * 1024
 
-    TEMPORARY_TEST_VDI_NAME = "TMP_test_" + PROGRAM_NAME
-    TEST_VDI_NAME = "test"
+    _TEMPORARY_TEST_VDI_NAME = "TMP_test_" + PROGRAM_NAME
+    _TEST_VDI_NAME = "test"
 
     def __init__(self,
                  pool_master,
@@ -128,8 +128,8 @@ class CBTTests(object):
             "read_only":
             False,
             "other_config": {},
-            "name_label": (self.TEST_VDI_NAME if keep_after_exit else
-                           self.TEMPORARY_TEST_VDI_NAME)
+            "name_label": (self._TEST_VDI_NAME if keep_after_exit else
+                           self._TEMPORARY_TEST_VDI_NAME)
         }
         vdi = self._session.xenapi.VDI.create(new_vdi_record)
         return vdi
@@ -374,10 +374,10 @@ class CBTTests(object):
         print("Size of network block device: %s" % client.size())
         for i in range(0, len(bitmap) - 1):
             if bitmap[i]:
-                offset = i * self.BLOCK_SIZE
-                print("Reading %d bytes from offset %d" % (self.BLOCK_SIZE,
+                offset = i * self._BLOCK_SIZE
+                print("Reading %d bytes from offset %d" % (self._BLOCK_SIZE,
                                                            offset))
-                data = client.read(offset=offset, length=self.BLOCK_SIZE)
+                data = client.read(offset=offset, length=self._BLOCK_SIZE)
                 yield (offset, data)
         client.close()
 
@@ -456,7 +456,7 @@ class CBTTests(object):
     def _cleanup_test_vdis(self):
         time.sleep(2)
         for vdi in self._session.xenapi.VDI.get_by_name_label(
-                self.TEMPORARY_TEST_VDI_NAME):
+                self._TEMPORARY_TEST_VDI_NAME):
             vdi_uuid = self._session.xenapi.VDI.get_uuid(vdi)
             for vbd in self._session.xenapi.VDI.get_VBDs(vdi):
                 vbd_uuid = self._session.xenapi.VBD.get_uuid(vbd)
