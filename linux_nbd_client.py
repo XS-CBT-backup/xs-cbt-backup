@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import weakref
 from pathlib import Path
 
 
@@ -108,8 +109,7 @@ class LinuxNbdClient(object):
 
         self.nbd_device = nbd_device
 
-    def __del__(self):
-        self.close()
+        self._del_ref = weakref.finalize(self, self.close)
 
     def close(self):
         """
