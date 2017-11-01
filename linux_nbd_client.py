@@ -25,7 +25,7 @@ def is_nbd_device_connected(nbd_device):
     # 1 for a non-existent file.
     if not Path(nbd_device).exists():
         raise FileNotFoundError
-    cmd = ['nbd-client', '-c', nbd_device]
+    cmd = ['nbd-client', '-check', nbd_device]
     returncode = subprocess.run(cmd).returncode
     if returncode == 0:
         return True
@@ -38,7 +38,7 @@ def disconnect_nbd_device(nbd_device):
     """
     Disconnects the given device using nbd-client
     """
-    cmd = ['nbd-client', '-d', nbd_device]
+    cmd = ['nbd-client', '-disconnect', nbd_device]
     print(cmd)
     subprocess.check_output(cmd)
 
