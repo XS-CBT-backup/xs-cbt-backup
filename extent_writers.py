@@ -3,6 +3,7 @@ Contains classes for downloading the given extents and writing
 them to a file.
 """
 
+import base64
 import subprocess
 from enum import Enum, unique
 from pathlib import Path
@@ -14,13 +15,21 @@ from bitstring import BitArray
 BLOCK_SIZE = 64 * 1024
 
 
-def bitmap_to_extents(bitmap):
+def bitmap_to_extents(cbt_bitmap):
     """
-    Given a CBT bitmap with 64K block size, this function will return the
-    list of changed (offset in bytes, length in bytes) extents.
+    Given a base64-encoded CBT bitmap with 64K block size (as returned by the
+    `VDI.get_nbd_info` XenAPI call), this function will return the list of
+    changed (offset in bytes, length in bytes) extents.
+
+    Args:
+        cbt_bitmap (bytes-like object): the bitmap to turn into extents
+
+    Returns:
+        An iterator containing the increasingly ordered sequence of the
+        non-overlapping extents corresponding to this bitmap.
     """
     start = None
-    bitmap = BitArray(bitmap)
+    bitmap = BitArray(base64.b64decode(cbt_bitmap))
     for i in range(0, len(bitmap)):
         if bitmap[i]:
             if start is None:
@@ -39,6 +48,10 @@ def bitmap_to_extents(bitmap):
 def merge_adjacent_extents(extents):
     """
     Coalesc the consecutive extents into one.
+
+    Args:
+        extents (iterator): increasingly ordered sequence of
+            non-overlapping (offset, length) pairs
 
     >>> list(merge_adjacent_extents(iter([(0,1),(1,3),(4,5)])))
     [(0, 9)]
