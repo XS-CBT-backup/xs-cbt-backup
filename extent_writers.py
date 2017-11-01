@@ -7,6 +7,59 @@ import subprocess
 from enum import Enum, unique
 from pathlib import Path
 
+from bitstring import BitArray
+
+
+# 64K blocks
+BLOCK_SIZE = 64 * 1024
+
+
+def bitmap_to_extents(bitmap):
+    """
+    Given a CBT bitmap with 64K block size, this function will return the
+    list of changed (offset in bytes, length in bytes) extents.
+    """
+    start = None
+    bitmap = BitArray(bitmap)
+    for i in range(0, len(bitmap)):
+        if bitmap[i]:
+            if start is None:
+                start = i
+                length = 1
+            else:
+                length += 1
+        else:
+            if start is not None:
+                yield (start * BLOCK_SIZE, length * BLOCK_SIZE)
+                start = None
+    if start is not None:
+        yield (start * BLOCK_SIZE, length * BLOCK_SIZE)
+
+
+def merge_adjacent_extents(extents):
+    """
+    Coalesc the consecutive extents into one.
+
+    >>> list(merge_adjacent_extents(iter([(0,1),(1,3),(4,5)])))
+    [(0, 9)]
+    >>> list(merge_adjacent_extents(iter([(0,1),(4,5)])))
+    [(0, 1), (4, 5)]
+    >>> list(merge_adjacent_extents(iter([])))
+    []
+    >>> list(merge_adjacent_extents(iter([(5,6)])))
+    [(5, 6)]
+    """
+    if not extents:
+        return
+    last = next(extents)
+    for extent in extents:
+        if extent[0] == (last[0] + last[1]):
+            last = (last[0], last[1] + extent[1])
+        else:
+            yield last
+            last = extent
+    yield last
+
 
 @unique
 class OutputMode(Enum):
@@ -18,6 +71,11 @@ class OutputMode(Enum):
 
 
 class PythonWriter(object):
+    """
+    Provides a way of reading extents using the specified NBD client object,
+    (which may be implemented in pure Python, or may be a wrapper around
+    nbd-client), and then writing these extents to the given output file.
+    """
     def __init__(self, nbd_client):
         self._nbd_client = nbd_client
 
@@ -39,6 +97,10 @@ class PythonWriter(object):
 
 
 class DdWriter(object):
+    """
+    Provides a way of reading extents from the specified /dev/nbdX device
+    using nbd-client, and then writing them to the given output file using dd.
+    """
     def __init__(self, nbd_device):
         self._nbd_device = nbd_device
 
@@ -68,3 +130,7 @@ class DdWriter(object):
                 out_file=out_file,
                 block_size=block_size,
                 output_mode=output_mode)
+
+
+def _write_changed_blocks(bitmap, writer, out_file, output_mode, block_size, coalesce_extents):
+    pass
