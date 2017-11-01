@@ -1,5 +1,5 @@
 """
-Contains functions for downloading the given extents and writing
+Contains classes for downloading the given extents and writing
 them to a file.
 """
 
