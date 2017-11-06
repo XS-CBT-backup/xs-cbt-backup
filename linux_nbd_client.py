@@ -81,6 +81,7 @@ class LinuxNbdClient(object):
                  nbd_device=None,
                  block_size=None,
                  timeout=None,
+                 connections=None,
                  use_socket_direct_protocol=False,
                  persist=True):
 
@@ -93,6 +94,8 @@ class LinuxNbdClient(object):
             command += ['-block-size', str(block_size)]
         if timeout is not None:
             command += ['-timeout', str(timeout)]
+        if connections is not None:
+            command += ['-connections', str(connections)]
         if use_socket_direct_protocol:
             command += ['-sdp']
         if persist:
