@@ -137,7 +137,11 @@ class LinuxNbdClient(object):
             fin.read(length)
 
     def _disconnect(self):
-        disconnect_nbd_device(nbd_device=self.nbd_device)
+        """
+        If the NBD device is connected, disconnect it using "nbd-client -d"
+        """
+        if is_nbd_device_connected(self.nbd_device):
+            disconnect_nbd_device(nbd_device=self.nbd_device)
 
     def flush(self):
         """
