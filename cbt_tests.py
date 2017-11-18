@@ -166,18 +166,18 @@ class CBTTests(object):
 
         destroy_op(vdi)
 
-    def _read_from_vdi(self, vdi=None):
-        if vdi is None:
-            vdi = self.create_test_vdi()
-            destroy_op = destroy_op or self._session.xenapi.VDI.destroy
-        self._auto_enable_nbd()
+    def _read_from_vdi(self, vdi):
         client = self._get_xapi_nbd_client(vdi=vdi)
         try:
             # This usually gives us some interesting text for the ISO VDIs :)
             # If we read from position 0 that's boring, we get all zeros
-            print(c.read(512 * 200, 512))
+            print(client.read(512 * 200, 512))
         finally:
             client.close()
+
+    def read_from_vdi(self):
+        vdi = self._create_test_vdi()
+        self._read_from_vdi(vdi)
 
     def test_data_destroy(self, wait_after_disconnect=False):
         vdi = self.create_test_vdi()
@@ -272,7 +272,7 @@ class CBTTests(object):
         # Stash the NBD clients here to avoid them being garbage collected
         # and disconnected immediately after creation :S.
         open_nbd_connections = []
-        vdi = self.create_test_vdi()
+        vdi = self._create_test_vdi()
         self._auto_enable_nbd()
         info = self._session.xenapi.VDI.get_nbd_info(vdi)[0]
         try:

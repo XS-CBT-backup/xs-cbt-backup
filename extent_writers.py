@@ -1,6 +1,7 @@
 """
-Contains classes for downloading the given extents and writing
-them to a file.
+Each class in this module takes a different NBD client in its constructor, and
+provides a method that downloads the given extents using this client and writes
+them to an output file.
 """
 
 import subprocess
@@ -37,7 +38,7 @@ class PythonWriter(object):
         """
         Write the given extents to the output file using Python functions only.
         """
-        with Path(out_file).open(output_mode) as out:
+        with Path(out_file).open(output_mode.value) as out:
             for extent in extents:
                 self._write_extent(
                     extent=extent, out=out, block_size=block_size)
@@ -77,7 +78,3 @@ class DdWriter(object):
                 out_file=out_file,
                 block_size=block_size,
                 output_mode=output_mode)
-
-
-def _write_changed_blocks(bitmap, writer, out_file, output_mode, block_size, coalesce_extents):
-    pass
