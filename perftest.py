@@ -34,6 +34,9 @@ def _test_configs():
 
 
 def test(pool_master, username, password, vdi_from_uuid, vdi_to_uuid):
+    """
+    Test the performance of various NBD configurations.
+    """
     session = XenAPI.Session(pool_master)
     xenapi = session.xenapi
     xenapi.login_with_password(username, password, "perftest")
