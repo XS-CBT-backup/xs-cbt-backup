@@ -22,7 +22,7 @@ def wait_after_nbd_network_changes():
     We do rate limiting with a 5s delay, so sometimes the update
     takes at least 5 seconds.
     """
-    time.sleep(7)
+    time.sleep(10)
 
 
 def auto_enable_nbd(session, use_tls=True, skip_vlan_networks=True):
