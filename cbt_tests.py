@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 
-import base64
-import random
-import subprocess
-import tempfile
-import time
-from pathlib import Path
-from xmlrpc.client import ServerProxy
+"""
+CLI for testing changed block tracking and the NBD server in XenServer.
+"""
 
-from bitstring import BitArray
+import random
+import socket
+import subprocess
+import time
+from xmlrpc.client import ServerProxy
 
 import XenAPI
 
@@ -57,6 +57,10 @@ def wait_after_nbd_disconnect():
 
 
 class CBTTests(object):
+    """
+    A command-line program providing a set of commands that test various
+    aspects of the changed block tracking and NBD server features in XenServer.
+    """
     # 64K blocks
     _BLOCK_SIZE = 64 * 1024
 
@@ -166,7 +170,7 @@ class CBTTests(object):
 
         destroy_op(vdi)
 
-    def _read_from_vdi(self, vdi):
+    def _read_from_vdi_via_nbd(self, vdi):
         client = self._get_xapi_nbd_client(vdi=vdi)
         try:
             # This usually gives us some interesting text for the ISO VDIs :)
@@ -175,27 +179,38 @@ class CBTTests(object):
         finally:
             client.close()
 
-    def read_from_vdi(self):
+    def read_from_vdi_via_nbd(self):
+        """
+        Creates a temporary VDI on the SR, and prints 512 bytes read
+        from it at a 100 KiB offset using the NBD server.
+        """
         vdi = self._create_test_vdi()
-        self._read_from_vdi(vdi)
+        self._read_from_vdi_via_nbd(vdi)
 
-    def test_data_destroy(self, wait_after_disconnect=False):
-        vdi = self.create_test_vdi()
+    def test_data_destroy(self):
+        """
+        Verifies that we can run data_destroy without errors on a VDI
+        immediately after disconnecting from the NBD server serving that VDI.
+        """
+        vdi = self._create_test_vdi()
         vbds = self._session.xenapi.VDI.get_VBDs(vdi)
-        assert len(vbds) == 0
+        assert not vbds
         self._session.xenapi.VDI.enable_cbt(vdi)
         snapshot = self._session.xenapi.VDI.snapshot(vdi)
 
-        self._read_from_vdi(
-            vdi=snapshot,
-            destroy_op=self._session.xenapi.VDI.data_destroy,
-            wait_after_disconnect=wait_after_disconnect)
+        self._read_from_vdi_via_nbd(vdi=snapshot)
+        self._session.xenapi.VDI.data_destroy(snapshot)
         vbds = self._session.xenapi.VDI.get_VBDs(vdi)
         # a cbt_metadata VDI should have no VBDs
-        assert len(vbds) == 0
+        assert not vbds
 
     def repro_sm_bug(self):
-        vdi = self.create_test_vdi()
+        """
+        Reproduces a race condition in SM between VDI.destroy on the
+        snapshotted VDI, and VBD.unplug on the snapshot VDI when CBT is
+        enabled. This has already been fixed.
+        """
+        vdi = self._create_test_vdi()
         print(self._session.xenapi.VDI.get_uuid(vdi))
         # Without this line, if we do not enable CBT, it works:
         self._session.xenapi.VDI.enable_cbt(vdi)
@@ -203,11 +218,11 @@ class CBTTests(object):
         print(self._session.xenapi.VDI.get_uuid(snapshot))
 
         self._auto_enable_nbd()
-        c = self._get_xapi_nbd_client(vdi=snapshot)
-        print(c.read(512 * 200, 512))
+        client = self._get_xapi_nbd_client(vdi=snapshot)
+        print(client.read(512 * 200, 512))
         # If we run the VDI.destroy here it will work:
         # self._session.xenapi.VDI.destroy(vdi)
-        c.close()
+        client.close()
 
         # It also works if we first wait for the unplug to finish, so probably
         # this is a race between VBD.unplug on the snapshot and VDI.destroy on
@@ -224,7 +239,7 @@ class CBTTests(object):
         vdi = self._create_test_vdi()
         xapi_nbd_networks.auto_enable_nbd(self._session)
         vbds = self._session.xenapi.VDI.get_VBDs(vdi)
-        assert len(vbds) == 0
+        assert not vbds
         client = self._get_xapi_nbd_client(vdi=vdi)
         if not terminate_while_connected:
             client.close()
@@ -236,7 +251,7 @@ class CBTTests(object):
             # wait for a while for the cleanup to finish
             time.sleep(4)
             vbds = self._session.xenapi.VDI.get_VBDs(vdi)
-            assert len(vbds) == 0
+            assert not vbds
         finally:
             self._control_xapi_nbd_service("start")
 
@@ -253,6 +268,10 @@ class CBTTests(object):
                                 n=1030,
                                 random_delays=False,
                                 fail_connection=False):
+        """
+        Keeps connecting to and disconnecting from the NBD server in a
+        loop, n times.
+        """
         if vdi is None:
             vdi = self.create_test_vdi()
 
@@ -300,24 +319,24 @@ class CBTTests(object):
         time.sleep(7)
 
     def test_nbd_network_config(self):
-        vdi = self.create_test_vdi()
-        # test that if we disable NBD on all networks, we cannot connect
-        self._disable_nbd_on_all_networks()
+        vdi = self._create_test_vdi()
+        # Test that if we disable NBD on all networks, we cannot connect
+        xapi_nbd_networks.disable_nbd_on_all_networks(session=self._session)
         infos = self._session.xenapi.VDI.get_nbd_info(vdi)
         print(infos)
         assert infos == []
-        # test that if we enable NBD on all networks, we can connect
-        self.get_xapi_nbd_client(vdi=vdi, auto_enable_nbd=True)
-        # now enable all the networks one by one and check that we can
-        # connect through them
-        self._disable_nbd_on_all_networks()
+        # Test that if we enable NBD on all networks, we can connect
+        self._get_xapi_nbd_client(vdi=vdi)
+        # Now enable all the networks one by one and check that we can
+        # connect through them.
+        xapi_nbd_networks.disable_nbd_on_all_networks(session=self._session)
         for network in self._session.xenapi.network.get_all():
-            if xapi_nbd.has_vlan_pif(
-                    self._session, network) and self._skip_vlan_networks:
+            if xapi_nbd_networks.has_vlan_pif(
+                    session=self._session, network=network) and self._skip_vlan_networks:
                 print("Skipping network {} because it has a"
                       " VLAN master PIF".format(network))
                 continue
-            self._disable_nbd_on_all_networks()
+            xapi_nbd_networks.disable_nbd_on_all_networks(session=self._session)
             self._enable_nbd_on_network(network=network)
             infos = self._session.xenapi.VDI.get_nbd_info(vdi)
             if infos == []:
@@ -325,26 +344,29 @@ class CBTTests(object):
                       " through it".format(network, vdi))
                 continue
             for vdi_nbd_server_info in infos:
-                self.get_xapi_nbd_client(
+                self._get_xapi_nbd_client(
                     vdi=vdi,
-                    auto_enable_nbd=False,
                     vdi_nbd_server_info=vdi_nbd_server_info)
 
     def test_nbd_timeout(self, timeout):
-        vdi = self.create_test_vdi()
+        """
+        Verifies that the NBD server closes the connection after the
+        client has been inactive for a given timeout.
+        """
+        vdi = self._create_test_vdi()
         self._auto_enable_nbd()
         client = self._get_xapi_nbd_client(vdi=vdi)
-        sleep = timeout * + 5
+        sleep = timeout + 2
         print("waiting for {} seconds".format(sleep))
         time.sleep(sleep)
         print("timeout over")
         try:
             client.read(0, 512)
-            success = True
-        except Exception as e:
-            print(e)
-            success = False
-        assert success is False
+            timed_out = False
+        except socket.timeout as exc:
+            print(exc)
+            timed_out = True
+        assert timed_out is True
 
     def _run_ssh_command(self, command):
         address = self._session.xenapi.host.get_address(self._host)
@@ -358,73 +380,37 @@ class CBTTests(object):
         self._run_ssh_command(["service", "xapi-nbd", service_command])
 
     def verify_xapi_nbd_systemd_service(self, socket_activated=False):
-        # Verify that the service is running & properly working
+        """
+        Verify that the service is running & properly working.
+        """
+        vdi = self._create_test_vdi()
         # This will fail if the service isn't running
         self._control_xapi_nbd_service(service_command="status")
-        self.read_from_vdi()
+        self._read_from_vdi_via_nbd(vdi=vdi)
         self._control_xapi_nbd_service(service_command="stop")
         try:
-            self.read_from_vdi()
+            self._read_from_vdi_via_nbd(vdi=vdi)
             running = True
         except ConnectionRefusedError:
             running = False
         assert running == socket_activated
         self._control_xapi_nbd_service(service_command="restart")
-        self.read_from_vdi()
+        self._read_from_vdi_via_nbd(vdi=vdi)
 
-    def download_changed_blocks_in_bitmap_from_nbd(self, vdi, bitmap):
-
-        bitmap = BitArray(base64.b64decode(bitmap))
-        client = self._get_xapi_nbd_client(vdi=vdi)
-        print("Size of network block device: %s" % client.size())
-        for i in range(0, len(bitmap) - 1):
-            if bitmap[i]:
-                offset = i * self._BLOCK_SIZE
-                print("Reading %d bytes from offset %d" % (self._BLOCK_SIZE,
-                                                           offset))
-                data = client.read(offset=offset, length=self._BLOCK_SIZE)
-                yield (offset, data)
-        client.close()
-
-    def get_cbt_bitmap(self, vdi_from=None, vdi_to=None):
-        if vdi_to is None:
-            vdi_to = self.create_test_vdi()
-            self._session.xenapi.VDI.enable_cbt(vdi_to)
-        if vdi_from is None:
-            vdi_from = self._session.xenapi.VDI.snapshot(vdi_to)
-
+    def print_cbt_bitmap(self):
+        """
+        Creates a temporary VDI, enables CBT on it, snapshots it, and
+        then prints the changed blocks between the snapshot and the
+        snapshotted VDI.
+        """
+        vdi_to = self._create_test_vdi()
+        self._session.xenapi.VDI.enable_cbt(vdi_to)
+        vdi_from = self._session.xenapi.VDI.snapshot(vdi_to)
         vdi_from_uuid = self._session.xenapi.VDI.get_uuid(vdi_from)
         vdi_to_uuid = self._session.xenapi.VDI.get_uuid(vdi_to)
-        print("self._session.xenapi.VDI.list_changed_blocks({}, {})".format(
+        print("VDI.list_changed_blocks({}, {}):".format(
             vdi_from_uuid, vdi_to_uuid))
-        return self._session.xenapi.VDI.list_changed_blocks(vdi_from, vdi_to)
-
-    def download_changed_blocks(self, vdi_from=None, vdi_to=None):
-        if vdi_to is None:
-            vdi_to = self.create_test_vdi()
-            self._session.xenapi.VDI.enable_cbt(vdi_to)
-        if vdi_from is None:
-            vdi_from = self._session.xenapi.VDI.snapshot(vdi_to)
-
-        bitmap = self.get_cbt_bitmap(vdi_from, vdi_to)
-        return self.download_changed_blocks_in_bitmap_from_nbd(
-            vdi=vdi_to, bitmap=bitmap)
-
-    def write_blocks_consecutively(self, changed_blocks, output_file=None):
-        if output_file is None:
-            out = tempfile.NamedTemporaryFile('ab', delete=False)
-        else:
-            out = open(output_file, 'ab')
-        for (o, b) in changed_blocks:
-            out.write(b)
-        out.close()
-        return out.name
-
-    def overwrite_changed_blocks(self, changed_blocks, output_file):
-        with Path(output_file).open(mode='r+b') as out:
-            for (offset, block) in changed_blocks:
-                out.seek(offset)
-                out.write(block)
+        print(self._session.xenapi.VDI.list_changed_blocks(vdi_from, vdi_to))
 
     def save_changed_blocks(self,
                             vdi_from=None,
@@ -440,12 +426,12 @@ class CBTTests(object):
         else:
             return self.write_blocks_consecutively(blocks, output_file)
 
-    def download_whole_vdi_using_nbd(self, vdi, path=None):
+    def download_whole_vdi_using_nbd(self, vdi, path):
+        """
+        Downloads the VDI using the NBD server.
+        """
         client = self._get_xapi_nbd_client(vdi=vdi)
-        if path is None:
-            out = tempfile.NamedTemporaryFile('ab', delete=False)
-        else:
-            out = path.open('ab')
+        out = path.open('ab')
         # download 4MiB chunks
         chunk_size = 4 * 1024 * 1024
         for offset in range(0, client.size(), chunk_size):
@@ -455,7 +441,7 @@ class CBTTests(object):
             out.seek(offset)
             out.write(chunk)
         out.close()
-        c.close()
+        client.close()
         return out.name
 
     def _cleanup_test_vdis(self):

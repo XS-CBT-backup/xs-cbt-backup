@@ -5,7 +5,7 @@ Provides helpers for controlling NBD access via a XenServer pool's networks.
 import time
 
 
-def _has_vlan_pif(session, network):
+def has_vlan_pif(session, network):
     """
     Returns true if there is a PIF on this network which is the master PIF of a
     VLAN.
@@ -42,7 +42,7 @@ def auto_enable_nbd(session, use_tls=True, skip_vlan_networks=True):
             session.xenapi.network.remove_purpose(network,
                                                   conflicting_nbd_purpose)
     for network in networks:
-        if not (skip_vlan_networks and _has_vlan_pif(session, network)):
+        if not (skip_vlan_networks and has_vlan_pif(session, network)):
             session.xenapi.network.add_purpose(network, nbd_purpose)
     wait_after_nbd_network_changes()
 
