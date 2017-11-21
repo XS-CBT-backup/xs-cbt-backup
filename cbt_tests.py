@@ -217,29 +217,34 @@ class CBTTests(object):
         self._session.xenapi.VDI.destroy(vdi)
 
     def _test_nbd_server_cleans_up_vbds(self,
-                                        terminate_while_client_connected,
+                                        terminate_while_connected,
                                         terminate_command):
-        self._disable_nbd_on_all_networks()
+        xapi_nbd_networks.disable_nbd_on_all_networks(self._session)
 
-        vdi = self.create_test_vdi()
-        xapi_nbd.auto_enable_nbd()
+        vdi = self._create_test_vdi()
+        xapi_nbd_networks.auto_enable_nbd(self._session)
         vbds = self._session.xenapi.VDI.get_VBDs(vdi)
         assert len(vbds) == 0
-        c = self._get_xapi_nbd_client(vdi=vdi)
-        if not terminate_while_client_connected:
-            c.close()
-        vbds = self._session.xenapi.VDI.get_VBDs(vdi)
-        assert len(vbds) == 1
-        self.control_xapi_nbd_service(terminate_command)
+        client = self._get_xapi_nbd_client(vdi=vdi)
+        if not terminate_while_connected:
+            client.close()
+        else:
+            vbds = self._session.xenapi.VDI.get_VBDs(vdi)
+            assert len(vbds) == 1
+        self._control_xapi_nbd_service(terminate_command)
         try:
             # wait for a while for the cleanup to finish
-            time.sleep(8)
+            time.sleep(4)
             vbds = self._session.xenapi.VDI.get_VBDs(vdi)
             assert len(vbds) == 0
         finally:
-            self.control_xapi_nbd_service("start")
+            self._control_xapi_nbd_service("start")
 
     def test_nbd_server_cleans_up_vbds(self):
+        """
+        Verifies that the NBD server has no leaked VBDs after it's restarted
+        after abnormal termination.
+        """
         self._test_nbd_server_cleans_up_vbds(False, "stop")
         self._test_nbd_server_cleans_up_vbds(True, "restart")
 

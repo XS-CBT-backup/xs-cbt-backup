@@ -47,7 +47,10 @@ def auto_enable_nbd(session, use_tls=True, skip_vlan_networks=True):
     wait_after_nbd_network_changes()
 
 
-def _disable_nbd_on_all_networks(session):
+def disable_nbd_on_all_networks(session):
+    """
+    Removes the "nbd" and "insecure_nbd" purposes from all network objects.
+    """
     for network in session.xenapi.network.get_all():
         session.xenapi.network.remove_purpose(network, "nbd")
         session.xenapi.network.remove_purpose(
