@@ -265,34 +265,36 @@ class CBTTests(object):
 
     def loop_connect_disconnect(self,
                                 vdi=None,
-                                n=1030,
+                                iterations=1030,
                                 random_delays=False,
                                 fail_connection=False):
         """
         Keeps connecting to and disconnecting from the NBD server in a
-        loop, n times.
+        loop.
         """
         if vdi is None:
-            vdi = self.create_test_vdi()
+            vdi = self._create_test_vdi()
 
         if fail_connection:
             info = self._session.xenapi.VDI.get_nbd_info(vdi)[0]
             info["exportname"] = "invalid export name"
 
-        for i in range(n):
+        for i in range(iterations):
             print("{}: connecting to {} on {}".format(i, vdi, self._host))
             if fail_connection:
-                self._get_xapi_nbd_client(vdi_nbd_server_info=info)
+                client = self._get_xapi_nbd_client(vdi_nbd_server_info=info)
             else:
-                c = self._get_xapi_nbd_client(vdi=vdi)
+                client = self._get_xapi_nbd_client(vdi=vdi)
             if random_delays:
                 time.sleep(random.random())
-            if not fail_connection:
-                c.close()
+            client.close()
             if random_delays:
                 time.sleep(random.random())
 
-    def parallel_nbd_connections(self, n):
+    def parallel_nbd_connections(self, n_connections):
+        """
+        Create n_connections parallel connections to the NBD server.
+        """
         # Stash the NBD clients here to avoid them being garbage collected
         # and disconnected immediately after creation :S.
         open_nbd_connections = []
@@ -300,7 +302,7 @@ class CBTTests(object):
         self._auto_enable_nbd()
         info = self._session.xenapi.VDI.get_nbd_info(vdi)[0]
         try:
-            for i in range(n):
+            for i in range(n_connections):
                 print("{}: connecting to {} on {}".format(i, vdi, self._host))
                 client = self._get_xapi_nbd_client(vdi_nbd_server_info=info)
                 open_nbd_connections += [client]
@@ -319,6 +321,15 @@ class CBTTests(object):
         time.sleep(7)
 
     def test_nbd_network_config(self):
+        """
+        Test that the NBD network configuration works correctly.
+        The following are tested:
+        - That VDI.get_nbd_info returns 0 records if NBD is disabled on
+          all networks.
+        - That when NBD is enabled on a given network, and disabled on
+          the others, we can connect through that network if
+          VDI.get_nbd_info returns entries for it.
+        """
         vdi = self._create_test_vdi()
         # Test that if we disable NBD on all networks, we cannot connect
         xapi_nbd_networks.disable_nbd_on_all_networks(session=self._session)
@@ -332,11 +343,13 @@ class CBTTests(object):
         xapi_nbd_networks.disable_nbd_on_all_networks(session=self._session)
         for network in self._session.xenapi.network.get_all():
             if xapi_nbd_networks.has_vlan_pif(
-                    session=self._session, network=network) and self._skip_vlan_networks:
+                    session=self._session, network=network) \
+                    and self._skip_vlan_networks:
                 print("Skipping network {} because it has a"
                       " VLAN master PIF".format(network))
                 continue
-            xapi_nbd_networks.disable_nbd_on_all_networks(session=self._session)
+            xapi_nbd_networks.disable_nbd_on_all_networks(
+                session=self._session)
             self._enable_nbd_on_network(network=network)
             infos = self._session.xenapi.VDI.get_nbd_info(vdi)
             if infos == []:
