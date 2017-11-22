@@ -12,6 +12,7 @@ from xmlrpc.client import ServerProxy
 
 import XenAPI
 
+import changed_blocks
 from python_nbd_client import PythonNbdClient
 import xapi_nbd_networks
 
@@ -42,7 +43,7 @@ def find_local_user_sr(session, host):
     return get_first_safely(user_srs)
 
 
-def wait_after_nbd_disconnect():
+def _wait_after_nbd_disconnect():
     """
     Wait for a bit for the cleanup actions (unplugging and
     destroying the VBD) to finish after terminating the NBD
@@ -102,9 +103,9 @@ class CBTTests(object):
         Create a session that won't be garbage-collected and maybe even logged
         out after we printed the session ref for the user
         """
-        p = ServerProxy("http://" + self._pool_master_address)
-        session = p.session.login_with_password(self._username,
-                                                self._password)['Value']
+        proxy = ServerProxy("http://" + self._pool_master_address)
+        session = proxy.session.login_with_password(
+            self._username, self._password)['Value']
         return session
 
     def __del__(self):
@@ -149,26 +150,14 @@ class CBTTests(object):
             vdi_nbd_server_info = self._session.xenapi.VDI.get_nbd_info(vdi)[0]
         return PythonNbdClient(**vdi_nbd_server_info, use_tls=self._use_tls)
 
-    def _destroy_vdi_after_nbd_disconnect(self,
-                                          vdi,
-                                          destroy_op=None,
-                                          wait_after_disconnect=False):
-        if destroy_op is None:
-            destroy_op = self._session.xenapi.VDI.destroy
-            wait_after_disconnect = True
-
-        if wait_after_disconnect:
-            # Wait for a bit for the cleanup actions (unplugging and
-            # destroying the VBD) to finish after terminating the NBD
-            # session.
-            # There is a race condition where we can get
-            # XenAPI.Failure:
-            #  ['VDI_IN_USE', 'OpaqueRef:<VDI ref>', 'destroy']
-            # if we immediately call VDI.destroy after closing the NBD
-            # session, because the VBD has not yet been cleaned up.
-            time.sleep(7)
-
-        destroy_op(vdi)
+    def _get_download_config(self):
+        return {
+            "nbd_client": changed_blocks.NbdClient.PYTHON,
+            "extent_writer": changed_blocks.ExtentWriter.PYTHON,
+            "block_size": 4 * 1024 * 1024,
+            "merge_adjacent_extents": True,
+            "use_tls": self._use_tls
+        }
 
     def _read_from_vdi_via_nbd(self, vdi):
         client = self._get_xapi_nbd_client(vdi=vdi)
@@ -458,7 +447,7 @@ class CBTTests(object):
         return out.name
 
     def _cleanup_test_vdis(self):
-        time.sleep(2)
+        _wait_after_nbd_disconnect()
         for vdi in self._session.xenapi.VDI.get_by_name_label(
                 self._TEMPORARY_TEST_VDI_NAME):
             vdi_uuid = self._session.xenapi.VDI.get_uuid(vdi)
