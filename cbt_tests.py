@@ -227,20 +227,17 @@ class CBTTests(object):
 
         vdi = self._create_test_vdi()
         xapi_nbd_networks.auto_enable_nbd(self._session)
-        vbds = self._session.xenapi.VDI.get_VBDs(vdi)
-        assert not vbds
         client = self._get_xapi_nbd_client(vdi=vdi)
         if not terminate_while_connected:
             client.close()
         else:
             vbds = self._session.xenapi.VDI.get_VBDs(vdi)
             assert len(vbds) == 1
-        self._control_xapi_nbd_service(terminate_command)
+        self._run_ssh_command(terminate_command)
         try:
             # wait for a while for the cleanup to finish
-            time.sleep(4)
-            vbds = self._session.xenapi.VDI.get_VBDs(vdi)
-            assert not vbds
+            time.sleep(6)
+            assert not self._session.xenapi.VDI.get_VBDs(vdi)
         finally:
             self._control_xapi_nbd_service("start")
 
@@ -249,8 +246,14 @@ class CBTTests(object):
         Verifies that the NBD server has no leaked VBDs after it's restarted
         after abnormal termination.
         """
-        self._test_nbd_server_cleans_up_vbds(False, "stop")
-        self._test_nbd_server_cleans_up_vbds(True, "restart")
+        self._test_nbd_server_cleans_up_vbds(
+            False, ["service", "xapi-nbd", "stop"])
+        self._test_nbd_server_cleans_up_vbds(
+            True, ["service", "xapi-nbd", "restart"])
+        # This is similar to a crash, as the program cannot handle this
+        # signal
+        self._test_nbd_server_cleans_up_vbds(
+            True, ["pkill", "-9", "xapi-nbd"])
 
     def loop_connect_disconnect(self,
                                 vdi=None,
@@ -450,18 +453,22 @@ class CBTTests(object):
         _wait_after_nbd_disconnect()
         for vdi in self._session.xenapi.VDI.get_by_name_label(
                 self._TEMPORARY_TEST_VDI_NAME):
-            vdi_uuid = self._session.xenapi.VDI.get_uuid(vdi)
-            for vbd in self._session.xenapi.VDI.get_VBDs(vdi):
-                vbd_uuid = self._session.xenapi.VBD.get_uuid(vbd)
-                print("Unplugging VBD {} of VDI {}".format(vbd_uuid, vdi_uuid))
-            # Wait for a bit for the VBD unplug operations to finish
-            time.sleep(4)
-            print("Destroying VDI {}".format(vdi_uuid))
+            print("Destroying VDI {}".format(vdi))
             try:
-                self._session.xenapi.VDI.destroy(vdi)
+                try:
+                    self._session.xenapi.VDI.destroy(vdi)
+                except XenAPI.Failure as xenapi_error:
+                    print("Failed to destroy VDI {}: {}. Trying to "
+                          "unplug VBDs first".
+                          format(vdi, xenapi_error))
+                    for vbd in self._session.xenapi.VDI.get_VBDs(vdi):
+                        print("Unplugging VBD {} of VDI {}".format(vbd, vdi))
+                    # Wait for a bit for the VBD unplug operations to finish
+                    time.sleep(4)
+                    self._session.xenapi.VDI.destroy(vdi)
             except XenAPI.Failure as xenapi_error:
                 print("Failed to destroy VDI {}: {}".
-                      format(vdi_uuid, xenapi_error))
+                      format(vdi, xenapi_error))
 
 
 if __name__ == '__main__':
