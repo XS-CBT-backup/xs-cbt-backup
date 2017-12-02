@@ -95,6 +95,9 @@ class CbtBitmap(object):
     data from the bitmap.
     """
     def __init__(self, cbt_bitmap_b64):
+        """
+        Decodes the given base64-encoded CBT bitmap.
+        """
         self.bitmap = base64.b64decode(cbt_bitmap_b64)
 
     def get_extents(self, merge_adjacent_extents):
