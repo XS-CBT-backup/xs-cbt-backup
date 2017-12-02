@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 
 from pathlib import Path
-import shutil
-import subprocess
 import urllib
 
 import XenAPI
 
-from block_downloader import BlockDownloader, NbdClient, ExtentWriter
-from extent_writers import OutputMode
-
+from block_downloader import NbdClient
+from vdi_downloader import VdiDownloader
 
 PROGRAM_NAME = "backup.py"
 
@@ -30,47 +27,6 @@ def enable_cbt(session, vm):
     """
     for vdi in get_vdis_of_vm(session=session, vm=vm):
         session.xenapi.VDI.enable_cbt(vdi)
-
-
-def incremental_vdi_backup(
-        session,
-        downloader,
-        vdi,
-        latest_backup,
-        output_file):
-    """
-    Downloads the blocks that changed between this VDI and the base VDI
-    and constructs a file containing this VDI's data.
-    The latest_backup argument should be a tuple (base_vdi, base_vdi_data),
-    where base_vdi_data is the file containing the data of base_vdi.
-    A lightweight CoW copy of base_vdi_data is performed if possible to
-    reconstruct the this VDI's data, otherwise a full copy is performed.
-    """
-    (vdi_from, vdi_from_backup) = latest_backup
-
-    try:
-        subprocess.check_output(
-            ["cp", "--reflink", str(vdi_from_backup), str(output_file)])
-    except subprocess.CalledProcessError:
-        shutil.copy(src=str(vdi_from_backup), dst=str(output_file))
-
-    bitmap = session.xenapi.VDI.list_changed_blocks(vdi_from, vdi)
-    vdi_info = session.xenapi.VDI.get_nbd_info(vdi)
-    downloader.download_changed_blocks(
-        bitmap=bitmap,
-        vdi_nbd_server_info=vdi_info,
-        out_file=output_file,
-        output_mode=OutputMode.OVERWRITE)
-
-
-def full_vdi_backup(session, downloader, vdi, output_file):
-    """
-    Downloads the data of the VDI to the give output file.
-    """
-    vdi_info = session.xenapi.VDI.get_nbd_info(vdi)
-    downloader.download_vdi(
-        vdi_nbd_server_info=vdi_info,
-        out_file=output_file)
 
 
 def _get_timestamp():
@@ -102,14 +58,8 @@ class Backup(object):
             pool_master_address)
         self._pool_master_dir.mkdir(exist_ok=True)
 
-        extent_writer = \
-            ExtentWriter.PYTHON if nbd_client == NbdClient.PYTHON else \
-            ExtentWriter.LINUX_DD
-        self._downloader = BlockDownloader(
+        self._downloader = VdiDownloader(
             nbd_client=nbd_client,
-            extent_writer=extent_writer,
-            block_size=4 * 1024 * 1024,
-            merge_adjacent_extents=True,
             use_tls=use_tls)
 
         self._vm = self._session.xenapi.VM.get_by_uuid(vm_uuid)
@@ -188,15 +138,13 @@ class Backup(object):
             latest_backup = self._get_latest_backup_of_vdi(vdi)
             print("Found latest backup: {}".format(latest_backup))
         if latest_backup is None:
-            full_vdi_backup(
+            self._downloader.full_vdi_backup(
                 session=self._session,
-                downloader=self._downloader,
                 vdi=vdi,
                 output_file=output_file)
         else:
-            incremental_vdi_backup(
+            self._downloader.incremental_vdi_backup(
                 session=self._session,
-                downloader=self._downloader,
                 vdi=vdi,
                 latest_backup=latest_backup,
                 output_file=output_file)
