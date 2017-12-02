@@ -105,8 +105,7 @@ class CbtBitmap(object):
         extents = _bitmap_to_extents(self.bitmap)
         if merge_adjacent_extents:
             return _merge_adjacent_extents(extents)
-        else:
-            return extents
+        return extents
 
     def get_statistics(self):
         """

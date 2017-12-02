@@ -12,7 +12,8 @@ from xmlrpc.client import ServerProxy
 
 import XenAPI
 
-import changed_blocks
+import block_downloader
+from extent_writers import OutputMode
 from python_nbd_client import PythonNbdClient
 import xapi_nbd_networks
 
@@ -122,22 +123,25 @@ class CBTTests(object):
         print("Creating a VDI")
 
         new_vdi_record = {
-            "SR":
-            self._sr,
-            "virtual_size":
-            40000000,
-            "type":
-            "user",
-            "sharable":
-            False,
-            "read_only":
-            False,
+            "SR": self._sr,
+            "virtual_size": 4000000,
+            "type": "user",
+            "sharable": False,
+            "read_only": False,
             "other_config": {},
             "name_label": (self._TEST_VDI_NAME if keep_after_exit else
                            self._TEMPORARY_TEST_VDI_NAME)
         }
         vdi = self._session.xenapi.VDI.create(new_vdi_record)
         return vdi
+
+    def create_test_vdi(self):
+        """
+        Creates a VDI of type user and size 4MB on the SR.
+        """
+        vdi = self._create_test_vdi(keep_after_exit=True)
+        print(vdi)
+        print(self._session.xenapi.VDI.get_uuid(vdi))
 
     def _auto_enable_nbd(self):
         xapi_nbd_networks.auto_enable_nbd(
@@ -150,23 +154,21 @@ class CBTTests(object):
             vdi_nbd_server_info = self._session.xenapi.VDI.get_nbd_info(vdi)[0]
         return PythonNbdClient(**vdi_nbd_server_info, use_tls=self._use_tls)
 
-    def _get_download_config(self):
-        return {
-            "nbd_client": changed_blocks.NbdClient.PYTHON,
-            "extent_writer": changed_blocks.ExtentWriter.PYTHON,
-            "block_size": 4 * 1024 * 1024,
-            "merge_adjacent_extents": True,
-            "use_tls": self._use_tls
-        }
+    def _get_block_downloader(self):
+        # download 4MiB chunks
+        block_size = 4 * 1024 * 1024
+        return block_downloader.BlockDownloader(
+            nbd_client=block_downloader.NbdClient.PYTHON,
+            extent_writer=block_downloader.ExtentWriter.PYTHON,
+            block_size=block_size,
+            merge_adjacent_extents=True,
+            use_tls=self._use_tls)
 
     def _read_from_vdi_via_nbd(self, vdi):
-        client = self._get_xapi_nbd_client(vdi=vdi)
-        try:
+        with self._get_xapi_nbd_client(vdi=vdi) as client:
             # This usually gives us some interesting text for the ISO VDIs :)
             # If we read from position 0 that's boring, we get all zeros
             print(client.read(512 * 200, 512))
-        finally:
-            client.close()
 
     def read_from_vdi_via_nbd(self):
         """
@@ -277,9 +279,9 @@ class CBTTests(object):
                 client = self._get_xapi_nbd_client(vdi_nbd_server_info=info)
             else:
                 client = self._get_xapi_nbd_client(vdi=vdi)
-            if random_delays:
-                time.sleep(random.random())
-            client.close()
+            with client:
+                if random_delays:
+                    time.sleep(random.random())
             if random_delays:
                 time.sleep(random.random())
 
@@ -307,10 +309,7 @@ class CBTTests(object):
         print("Enabling secure NBD on network {}".format(network))
         nbd_purpose = "nbd" if self._use_tls else "insecure_nbd"
         self._session.xenapi.network.add_purpose(network, nbd_purpose)
-        # wait for a bit for the changes to take effect
-        # We do rate limiting with a 5s delay, so sometimes the update
-        # takes at least 5 seconds
-        time.sleep(7)
+        xapi_nbd_networks.wait_after_nbd_network_changes()
 
     def test_nbd_network_config(self):
         """
@@ -348,10 +347,10 @@ class CBTTests(object):
                 print("Skipping network {} because VDI {} is not reachable"
                       " through it".format(network, vdi))
                 continue
-            for vdi_nbd_server_info in infos:
-                self._get_xapi_nbd_client(
-                    vdi=vdi,
-                    vdi_nbd_server_info=vdi_nbd_server_info)
+            for info in infos:
+                with self._get_xapi_nbd_client(vdi=vdi,
+                                               vdi_nbd_server_info=info):
+                    pass
 
     def test_nbd_timeout(self, timeout):
         """
@@ -360,18 +359,18 @@ class CBTTests(object):
         """
         vdi = self._create_test_vdi()
         self._auto_enable_nbd()
-        client = self._get_xapi_nbd_client(vdi=vdi)
-        sleep = timeout + 2
-        print("waiting for {} seconds".format(sleep))
-        time.sleep(sleep)
-        print("timeout over")
-        try:
-            client.read(0, 512)
-            timed_out = False
-        except socket.timeout as exc:
-            print(exc)
-            timed_out = True
-        assert timed_out is True
+        with self._get_xapi_nbd_client(vdi=vdi) as client:
+            sleep = timeout + 2
+            print("waiting for {} seconds".format(sleep))
+            time.sleep(sleep)
+            print("timeout over")
+            try:
+                client.read(0, 512)
+                timed_out = False
+            except socket.timeout as exc:
+                print(exc)
+                timed_out = True
+            assert timed_out is True
 
     def _run_ssh_command(self, command):
         address = self._session.xenapi.host.get_address(self._host)
@@ -417,42 +416,56 @@ class CBTTests(object):
             vdi_from_uuid, vdi_to_uuid))
         print(self._session.xenapi.VDI.list_changed_blocks(vdi_from, vdi_to))
 
+    def _find_or_create_vdi(self, vdi_uuid):
+        if vdi_uuid is None:
+            return self._create_test_vdi()
+        return self._session.xenapi.VDI.get_by_uuid(vdi_uuid)
+
     def save_changed_blocks(self,
-                            vdi_from=None,
-                            vdi_to=None,
-                            output_file=None,
-                            overwrite_changed_blocks=True):
-        blocks = self.download_changed_blocks(vdi_from=vdi_from, vdi_to=vdi_to)
-
-        overwrite_changed_blocks = (output_file is
-                                    not None) and overwrite_changed_blocks
-        if overwrite_changed_blocks:
-            self.overwrite_changed_blocks(blocks, output_file)
+                            output_file,
+                            vdi_from_uuid=None,
+                            vdi_to_uuid=None,
+                            overwrite_changed_blocks=False):
+        """
+        Downloads the changed blocks between two VDIs using the NBD server.
+        """
+        if vdi_to_uuid is None:
+            assert vdi_from_uuid is None
+        vdi_to = self._find_or_create_vdi(vdi_to_uuid)
+        if vdi_from_uuid is None:
+            vdi_from = self._session.xenapi.VDI.snapshot(vdi_to)
         else:
-            return self.write_blocks_consecutively(blocks, output_file)
+            vdi_from = self._session.xenapi.VDI.get_by_uuid(vdi_from_uuid)
+        downloader = self._get_block_downloader()
+        output_mode = \
+            OutputMode.OVERWRITE if overwrite_changed_blocks \
+            else OutputMode.APPEND
+        bitmap = self._session.xenapi.VDI.list_changed_blocks(
+            vdi_from, vdi_to)
+        vdi_info = self._session.xenapi.VDI.get_nbd_info(vdi_to)
+        downloader.download_changed_blocks(
+            bitmap=bitmap,
+            vdi_nbd_server_info=vdi_info,
+            out_file=output_file,
+            output_mode=output_mode)
 
-    def download_whole_vdi_using_nbd(self, vdi, path):
+    def download_whole_vdi_using_nbd(self, output_file, vdi_uuid=None):
         """
         Downloads the VDI using the NBD server.
         """
-        client = self._get_xapi_nbd_client(vdi=vdi)
-        out = path.open('ab')
-        # download 4MiB chunks
-        chunk_size = 4 * 1024 * 1024
-        for offset in range(0, client.size(), chunk_size):
-            length = min(chunk_size, client.size() - offset)
-            chunk = client.read(offset, length)
-            print("Fetched chunk of length: {}".format(len(chunk)))
-            out.seek(offset)
-            out.write(chunk)
-        out.close()
-        client.close()
-        return out.name
+        vdi = self._find_or_create_vdi(vdi_uuid)
+        downloader = self._get_block_downloader()
+        vdi_info = self._session.xenapi.VDI.get_nbd_info(vdi)
+        downloader.download_vdi(
+            vdi_nbd_server_info=vdi_info,
+            out_file=output_file)
 
     def _cleanup_test_vdis(self):
-        _wait_after_nbd_disconnect()
-        for vdi in self._session.xenapi.VDI.get_by_name_label(
-                self._TEMPORARY_TEST_VDI_NAME):
+        temp_vdis = self._session.xenapi.VDI.get_by_name_label(
+            self._TEMPORARY_TEST_VDI_NAME)
+        if temp_vdis:
+            _wait_after_nbd_disconnect()
+        for vdi in temp_vdis:
             print("Destroying VDI {}".format(vdi))
             try:
                 try:

@@ -149,6 +149,7 @@ class PythonNbdClient(object):
                  address,
                  exportname="",
                  port=10809,
+                 timeout=60,
                  subject=None,
                  cert=None,
                  use_tls=True,
@@ -159,7 +160,9 @@ class PythonNbdClient(object):
         self._closed = True
         self._handle = 0
         self._last_sent_option = None
-        self._s = socket.create_connection(address=(address, port), timeout=30)
+        self._s = socket.create_connection(
+            address=(address, port),
+            timeout=timeout)
         self._closed = False
         if new_style_handshake:
             self._fixed_new_style_handshake(
@@ -170,7 +173,10 @@ class PythonNbdClient(object):
         else:
             self._old_style_handshake()
 
-    def __del__(self):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
         self.close()
 
     def close(self):
@@ -358,7 +364,7 @@ class PythonNbdClient(object):
         print("NBD_CMD_DISC")
         self._send_request_header(self.NBD_CMD_DISC, 0, 0)
 
-    def size(self):
+    def get_size(self):
         """
         Return the size of the device in bytes.
         """

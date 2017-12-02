@@ -80,7 +80,7 @@ class LinuxNbdClient(object):
                  use_tls=True,
                  nbd_device=None,
                  block_size=None,
-                 timeout=None,
+                 timeout=60,
                  connections=None,
                  use_socket_direct_protocol=False,
                  persist=True):
@@ -100,9 +100,10 @@ class LinuxNbdClient(object):
             command += ['-sdp']
         if persist:
             command += ['-persist']
+        self._certfile = None
         if use_tls:
-            certfile = _write_cert_to_file(cert)
-            command += ['-cacertfile', certfile]
+            self._certfile = _write_cert_to_file(cert)
+            command += ['-cacertfile', self._certfile]
             if subject is not None:
                 command += ['-tlshostname', subject]
             command += ['-enable-tls']
@@ -113,6 +114,12 @@ class LinuxNbdClient(object):
         self.nbd_device = nbd_device
 
         self._del_ref = weakref.finalize(self, self.close)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
 
     def close(self):
         """
@@ -145,9 +152,18 @@ class LinuxNbdClient(object):
         """
         if is_nbd_device_connected(self.nbd_device):
             disconnect_nbd_device(nbd_device=self.nbd_device)
+        if self._certfile is not None and os.path.exists(self._certfile):
+            os.remove(self._certfile)
 
     def flush(self):
         """
         Issues a sync request.
         """
         os.sync()
+
+    def get_size(self):
+        """
+        Return the size of the device in bytes.
+        """
+        return int(subprocess.check_output(
+            ["blockdev", "--getsize64", self.nbd_device]))
