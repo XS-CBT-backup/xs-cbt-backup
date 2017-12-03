@@ -25,7 +25,7 @@ def wait_after_nbd_network_changes():
     time.sleep(10)
 
 
-def auto_enable_nbd(session, use_tls=True, skip_vlan_networks=True):
+def auto_enable_nbd(session, use_tls=True, skip_vlans=True):
     """
     If there is a network on which NBD is already enabled,
     this function does nothing. Otherwise, it enables NBD on
@@ -42,7 +42,7 @@ def auto_enable_nbd(session, use_tls=True, skip_vlan_networks=True):
             session.xenapi.network.remove_purpose(network,
                                                   conflicting_nbd_purpose)
     for network in networks:
-        if not (skip_vlan_networks and has_vlan_pif(session, network)):
+        if not (skip_vlans and has_vlan_pif(session, network)):
             session.xenapi.network.add_purpose(network, nbd_purpose)
     wait_after_nbd_network_changes()
 
