@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import hashlib
 from pathlib import Path
 import urllib
 
@@ -27,6 +28,20 @@ def enable_cbt(session, vm):
     """
     for vdi in get_vdis_of_vm(session=session, vm=vm):
         session.xenapi.VDI.enable_cbt(vdi)
+
+
+def md5sum(filepath):
+    """
+    Compute the MD5 checksum of the file.
+    """
+    with open(filepath, 'rb') as infile:
+        hasher = hashlib.md5()
+        while True:
+            data = infile.read(65536)
+            if not data:
+                break
+        hasher.update(data)
+    return hasher.hexdigest()
 
 
 def _get_timestamp():
@@ -130,6 +145,7 @@ class Backup(object):
         """
         vdi_uuid = self._session.xenapi.VDI.get_uuid(vdi)
         print("Backing up VDI {} with UUID {}".format(vdi, vdi_uuid))
+        checksum = self._session.xenapi.VDI.checksum()
         output_file = backup_dir / vdi_uuid
         cbt_enabled = self._session.xenapi.VDI.get_cbt_enabled(vdi)
 
@@ -148,6 +164,8 @@ class Backup(object):
                 vdi=vdi,
                 latest_backup=latest_backup,
                 output_file=output_file)
+        backup_checksum = md5sum(output_file)
+        assert backup_checksum == checksum
 
         if cbt_enabled:
             self._session.xenapi.VDI.data_destroy(vdi)

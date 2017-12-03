@@ -1,6 +1,4 @@
 - BTRFS dedupe
-- checksum
-- data_destroy
 - backup metadata
 - restore VM
 - rewrite in Rust
