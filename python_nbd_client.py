@@ -191,15 +191,16 @@ class PythonNbdClient(object):
             self._closed = True
 
     def _recvall(self, length):
-        data = bytes()
-        while len(data) < length:
-            received = self._s.recv(length - len(data))
+        data = bytearray(length)
+        view = memoryview(data)
+        bytes_left = length
+        while bytes_left:
+            received = self._s.recv_into(view, bytes_left)
             # If recv reads 0 bytes, that means the peer has properly
             # shut down the TCP session (end-of-file error):
             if not received:
                 raise NBDEOFError
-            data = data + received
-        assert len(data) == length
+            bytes_left -= received
         return data
 
     def _send_option(self, option, data=b''):
