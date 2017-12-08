@@ -200,6 +200,7 @@ class PythonNbdClient(object):
             # shut down the TCP session (end-of-file error):
             if not received:
                 raise NBDEOFError
+            view = view[received:]
             bytes_left -= received
         return data
 
