@@ -59,7 +59,7 @@ class VdiDownloader(object):
         """
         Downloads the data of the VDI to the give output file.
         """
-        vdi_info = session.xenapi.VDI.get_nbd_info(vdi)
+        vdi_info = session.xenapi.VDI.get_nbd_info(vdi)[0]
         self._downloader.download_vdi(
             vdi_nbd_server_info=vdi_info,
             out_file=output_file)
