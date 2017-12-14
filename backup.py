@@ -131,7 +131,9 @@ class Backup(object):
         """
         vdi_uuid = self._session.xenapi.VDI.get_uuid(vdi)
         print("Backing up VDI {} with UUID {}".format(vdi, vdi_uuid))
+        print("Checksumming VDI on server side")
         checksum = md5sum.vdi_checksum(self._session, vdi)
+        print("checksum: {}".format(checksum))
         output_file = backup_dir / vdi_uuid
         cbt_enabled = self._session.xenapi.VDI.get_cbt_enabled(vdi)
 
@@ -150,7 +152,9 @@ class Backup(object):
                 vdi=vdi,
                 latest_backup=latest_backup,
                 output_file=output_file)
+        print("Checksumming local backup")
         backup_checksum = md5sum.file_checksum(output_file)
+        print("checksum: {}".format(backup_checksum))
         assert backup_checksum == checksum
 
         if cbt_enabled:

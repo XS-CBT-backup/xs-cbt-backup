@@ -30,8 +30,8 @@ class PythonWriter(object):
     def _write_extent(self, extent, out, block_size):
         (offset, length) = extent
         for current_offset in range(offset, length, block_size):
-            length = min(block_size, length - current_offset)
-            data = self._nbd_client.read(offset=current_offset, length=length)
+            block_length = min(block_size, length - current_offset)
+            data = self._nbd_client.read(offset=current_offset, length=block_length)
             out.seek(current_offset)
             out.write(data)
 
