@@ -2,11 +2,25 @@
 Code for backing up VDIs.
 """
 
+from enum import Enum, unique
+from pathlib import Path
 import shutil
 import subprocess
 
-from block_downloader import BlockDownloader, NbdClient, ExtentWriter
-from extent_writers import OutputMode
+from cbt_bitmap import CbtBitmap
+from python_nbd_client import PythonNbdClient
+
+
+def _copy(src, dst):
+    try:
+        subprocess.check_output(
+            ["cp", "--reflink", str(src), str(dst)])
+    except subprocess.CalledProcessError:
+        shutil.copy(src=str(src), dst=str(dst))
+
+
+def _get_nbd_info(session, vdi):
+    return session.xenapi.VDI.get_nbd_info(vdi)[0]
 
 
 class VdiDownloader(object):
@@ -14,20 +28,70 @@ class VdiDownloader(object):
     Provides a way of backing up the data of a VDI incrementally to a file or
     downloading it completely.
     """
-    def __init__(self, nbd_client=NbdClient.PYTHON, use_tls=True):
-        extent_writer = \
-            ExtentWriter.PYTHON if nbd_client == NbdClient.PYTHON else \
-            ExtentWriter.LINUX_DD
-        self._downloader = BlockDownloader(
-            nbd_client=nbd_client,
-            extent_writer=extent_writer,
-            block_size=4 * 1024 * 1024,
-            merge_adjacent_extents=True,
-            use_tls=use_tls)
+    def __init__(self, session, block_size, use_tls=True):
+        self._session = session
+        self._block_size = block_size
+        self._use_tls = use_tls
+
+    def _nbd_client(self, vdi_nbd_server_info):
+        return PythonNbdClient(**vdi_nbd_server_info, use_tls=self._use_tls)
+
+    @unique
+    class _OutputMode(Enum):
+        """
+        Defines how to write the data in the changed blocks to the output file.
+        """
+        OVERWRITE = 'r+b'
+        APPEND = 'ab'
+
+    def _download_nbd_extents(self, nbd_client, extents, out_file, output_mode):
+        """
+        Write the given extents to the output file.
+        """
+        with Path(out_file).open(output_mode.value) as out:
+            for extent in extents:
+                (offset, length) = extent
+                for current_offset in range(offset, length, self._block_size):
+                    block_length = min(self._block_size, length - current_offset)
+                    data = nbd_client.read(offset=current_offset, length=block_length)
+                    out.seek(current_offset)
+                    out.write(data)
+
+    def _download_changed_blocks(
+            self,
+            bitmap,
+            vdi_nbd_server_info,
+            out_file,
+            output_mode):
+        """
+        From the network block device specified by the given connection
+        information, downloads the blocks that are marked as changed in
+        the bitmap via NBD, and writes these blocks to the output file.
+        """
+        bitmap = CbtBitmap(bitmap)
+        extents = bitmap.get_extents(merge_adjacent_extents=True)
+        with self._nbd_client(vdi_nbd_server_info) as nbd_client:
+            self._download_nbd_extents(
+                nbd_client=nbd_client,
+                extents=extents,
+                out_file=out_file,
+                output_mode=output_mode)
+
+    def _download_vdi(self, vdi_nbd_server_info, out_file):
+        """
+        Downloads the network block device specified by the given
+        connection information, and writes these blocks to the output file.
+        """
+        with self._nbd_client(vdi_nbd_server_info) as nbd_client:
+            size = nbd_client.get_size()
+            self._download_nbd_extents(
+                nbd_client=nbd_client,
+                extents=[(0, size)],
+                out_file=out_file,
+                output_mode=self._OutputMode.APPEND)
 
     def incremental_vdi_backup(
             self,
-            session,
             vdi,
             latest_backup,
             output_file):
@@ -41,25 +105,23 @@ class VdiDownloader(object):
         """
         (vdi_from, vdi_from_backup) = latest_backup
 
-        try:
-            subprocess.check_output(
-                ["cp", "--reflink", str(vdi_from_backup), str(output_file)])
-        except subprocess.CalledProcessError:
-            shutil.copy(src=str(vdi_from_backup), dst=str(output_file))
+        bitmap = self._session.xenapi.VDI.list_changed_blocks(vdi_from, vdi)
 
-        bitmap = session.xenapi.VDI.list_changed_blocks(vdi_from, vdi)
-        vdi_info = session.xenapi.VDI.get_nbd_info(vdi)
-        self._downloader.download_changed_blocks(
+        nbd_info = _get_nbd_info(self._session, vdi)
+
+        _copy(str(vdi_from_backup), str(output_file))
+
+        self._download_changed_blocks(
             bitmap=bitmap,
-            vdi_nbd_server_info=vdi_info,
+            vdi_nbd_server_info=nbd_info,
             out_file=output_file,
-            output_mode=OutputMode.OVERWRITE)
+            output_mode=self._OutputMode.OVERWRITE)
 
-    def full_vdi_backup(self, session, vdi, output_file):
+    def full_vdi_backup(self, vdi, output_file):
         """
         Downloads the data of the VDI to the give output file.
         """
-        vdi_info = session.xenapi.VDI.get_nbd_info(vdi)[0]
-        self._downloader.download_vdi(
-            vdi_nbd_server_info=vdi_info,
+        nbd_info = _get_nbd_info(self._session, vdi)
+        self._download_vdi(
+            vdi_nbd_server_info=nbd_info,
             out_file=output_file)

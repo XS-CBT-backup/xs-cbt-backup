@@ -1,38 +1,36 @@
 #!/usr/bin/env python3
 
 from pathlib import Path
-import urllib
 
 import XenAPI
 
-from block_downloader import NbdClient
 from vdi_downloader import VdiDownloader
 import md5sum
 
 PROGRAM_NAME = "backup.py"
 
 
-def get_vdis_of_vm(session, vm):
+def get_vdis_of_vm(session, vm_ref):
     """
-    Returns the VDIs that are linked to a VM by a VBD.
+    Returns the non-empty VDIs that are connected to a VM by a plugged or unplugged VBD.
     """
-    for vbd in session.xenapi.VM.get_VBDs(vm):
+    for vbd in session.xenapi.VM.get_VBDs(vm_ref):
         vdi = session.xenapi.VBD.get_VDI(vbd)
         if not session.xenapi.VBD.get_empty(vbd):
             yield vdi
 
 
-def enable_cbt(session, vm):
+def enable_cbt(session, vm_ref):
     """
     Enables CBT on all the VDIs of a VM.
     """
-    for vdi in get_vdis_of_vm(session=session, vm=vm):
+    for vdi in get_vdis_of_vm(session=session, vm_ref=vm_ref):
         session.xenapi.VDI.enable_cbt(vdi)
 
 
 def _get_timestamp():
     import datetime
-    # don't use characters that are invalid in filenames
+    # Avoid using characters that are invalid in filenames
     now = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
     return now
 
@@ -44,7 +42,6 @@ class Backup(object):
             username,
             password,
             vm_uuid,
-            nbd_client=NbdClient.PYTHON,
             use_tls=True):
 
         self._session = XenAPI.Session("http://" + pool_master_address)
@@ -52,19 +49,14 @@ class Backup(object):
             username, password, "1.0", PROGRAM_NAME)
 
         self._backup_dir = Path.home() / ".cbt_backups"
-        self._backup_dir.mkdir(exist_ok=True)
-
-        # don't use characters that are invalid in filenames
-        self._pool_master_dir = self._backup_dir / urllib.parse.quote(
-            pool_master_address)
-        self._pool_master_dir.mkdir(exist_ok=True)
 
         self._downloader = VdiDownloader(
-            nbd_client=nbd_client,
+            session=self._session,
+            block_size=4 * 1024 * 1024,
             use_tls=use_tls)
 
         self._vm = self._session.xenapi.VM.get_by_uuid(vm_uuid)
-        self._vm_dir = self._pool_master_dir / vm_uuid
+        self._vm_dir = self._backup_dir / vm_uuid
         self._vm_dir.mkdir(exist_ok=True)
 
     def _get_backup_dirs(self):
@@ -143,12 +135,10 @@ class Backup(object):
             print("Found latest backup: {}".format(latest_backup))
         if latest_backup is None:
             self._downloader.full_vdi_backup(
-                session=self._session,
                 vdi=vdi,
                 output_file=output_file)
         else:
             self._downloader.incremental_vdi_backup(
-                session=self._session,
                 vdi=vdi,
                 latest_backup=latest_backup,
                 output_file=output_file)
@@ -179,10 +169,7 @@ class Backup(object):
         print("Backing up VM {}".format(self._vm))
         print(
             "Backups of VM {} are stored in {}".format(self._vm, self._vm_dir))
-
-        # Try to enable CBT on all VDIs of the VM
         enable_cbt(self._session, self._vm)
-
         timestamp = _get_timestamp()
         backup_dir = self._get_new_backup_dir(timestamp)
         snapshot = self._snapshot_vm(timestamp)
