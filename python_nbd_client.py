@@ -153,16 +153,22 @@ class PythonNbdClient(object):
                  subject=None,
                  cert=None,
                  use_tls=True,
-                 new_style_handshake=True):
+                 new_style_handshake=True,
+                 unix=False):
         print("Connecting to export '{}' on host '{}' and port '{}'"
               .format(exportname, address, port))
         self._flushed = True
         self._closed = True
         self._handle = 0
         self._last_sent_option = None
-        self._s = socket.create_connection(
-            address=(address, port),
-            timeout=timeout)
+        if unix:
+            self._s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        else:
+            self._s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        if not unix:
+            address = (address, port)
+        self._s.settimeout(timeout)
+        self._s.connect(address)
         self._closed = False
         if new_style_handshake:
             self._fixed_new_style_handshake(
