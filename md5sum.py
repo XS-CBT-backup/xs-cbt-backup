@@ -18,7 +18,7 @@ def file_checksum(filepath):
             data = infile.read(65536)
             if not data:
                 break
-        hasher.update(data)
+            hasher.update(data)
     return hasher.hexdigest()
 
 

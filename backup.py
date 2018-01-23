@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import datetime
 from pathlib import Path
 
 import XenAPI
@@ -29,26 +30,16 @@ def enable_cbt(session, vm_ref):
 
 
 def _get_timestamp():
-    import datetime
-    # Avoid using characters that are invalid in filenames
-    now = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    return now
+    # Avoid characters that are invalid in filenames.
+    # ISO 8601
+    return datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
 
 
-class Backup(object):
-    def __init__(
-            self,
-            pool_master_address,
-            username,
-            password,
-            vm_uuid,
-            use_tls=True):
-
-        self._session = XenAPI.Session("http://" + pool_master_address)
-        self._session.xenapi.login_with_password(
-            username, password, "1.0", PROGRAM_NAME)
-
-        self._backup_dir = Path.home() / ".cbt_backups"
+class BackupConfig(object):
+    def __init__(self, session, backup_dir, vm_uuid, use_tls):
+        self._session = session
+        self._backup_dir = backup_dir
+        self._vm = vm_uuid
 
         self._downloader = VdiDownloader(
             session=self._session,
@@ -59,16 +50,6 @@ class Backup(object):
         self._vm_dir = self._backup_dir / vm_uuid
         self._vm_dir.mkdir(exist_ok=True)
 
-    def _get_backup_dirs(self):
-        print(
-            "Listing subdirectories of the VM backup directory {} "
-            "corresponding to backups of that VM.".
-            format(self._vm_dir))
-        return self._vm_dir.iterdir()
-
-    def _has_backup(self):
-        return any(self._get_backup_dirs())
-
     def _get_new_backup_dir(self, timestamp):
         backup_dir = self._vm_dir / timestamp
         backup_dir.mkdir()
@@ -76,21 +57,15 @@ class Backup(object):
         return backup_dir
 
     def _get_all_vdi_backups(self):
-        for backup in self._get_backup_dirs():
-            for snapshot in backup.iterdir():
-                print("Found backed up snapshot {} in directory {}".format(
-                    snapshot.name, snapshot))
-                yield snapshot
+        for vm_backup in self._vm_dir.iterdir():
+            for vdi_backup in vm_backup.iterdir():
+                yield vdi_backup
 
     def _get_local_backup_of_snapshot(self, snapshot):
         uuid = self._session.xenapi.VDI.get_uuid(snapshot)
-        print(
-            "Trying to find the local backup of snapshot VDI {} with UUID {}".
-            format(snapshot, uuid))
         local_backup = next((b for b in self._get_all_vdi_backups()
-                             if b.name == uuid), None)
-        print("Found local backup {} for snapshot with UUID {}".format(
-            local_backup, uuid))
+                             if b.name == uuid),
+                            None)
         return local_backup
 
     def _snapshot_timestamp(self, snapshot):
@@ -107,9 +82,9 @@ class Backup(object):
         backups_from_newest_to_oldest = (
             (s, self._get_local_backup_of_snapshot(s))
             for s in snapshots_from_newest_to_oldest)
-        backups_from_newest_to_oldest = list(backups_from_newest_to_oldest)
-        backups_from_newest_to_oldest = list(
-            (s, b) for (s, b) in backups_from_newest_to_oldest
+        backups_from_newest_to_oldest = (
+            (s, b)
+            for (s, b) in backups_from_newest_to_oldest
             if b is not None)
         return next(iter(backups_from_newest_to_oldest), None)
 
@@ -125,7 +100,6 @@ class Backup(object):
         print("Backing up VDI {} with UUID {}".format(vdi, vdi_uuid))
         print("Checksumming VDI on server side")
         checksum = md5sum.vdi_checksum(self._session, vdi)
-        print("checksum: {}".format(checksum))
         output_file = backup_dir / vdi_uuid
         cbt_enabled = self._session.xenapi.VDI.get_cbt_enabled(vdi)
 
@@ -144,7 +118,7 @@ class Backup(object):
                 output_file=output_file)
         print("Checksumming local backup")
         backup_checksum = md5sum.file_checksum(output_file)
-        print("checksum: {}".format(backup_checksum))
+        print("Comparing checksums: local {} server {}".format(backup_checksum, checksum))
         assert backup_checksum == checksum
 
         if cbt_enabled:
@@ -177,6 +151,22 @@ class Backup(object):
         self._vm_backup(vm_snapshot=snapshot, backup_dir=backup_dir)
 
 
+def backup(master, vm, pwd, uname='root', tls=True):
+    session = XenAPI.Session("http://" + master)
+    session.xenapi.login_with_password(
+        uname, pwd, "1.0", PROGRAM_NAME)
+
+    backup_dir = Path.home() / ".cbt_backups"
+
+    backup_config = BackupConfig(
+        session=session,
+        backup_dir=backup_dir,
+        vm_uuid=vm,
+        use_tls=tls)
+
+    backup_config.backup()
+
+
 if __name__ == '__main__':
     import fire
-    fire.Fire(Backup)
+    fire.Fire(backup)
