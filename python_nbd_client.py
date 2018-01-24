@@ -166,7 +166,7 @@ class PythonNbdClient(object):
         else:
             self._s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         if not unix:
-            address = (address, port)
+            address = (address, int(port))
         self._s.settimeout(timeout)
         self._s.connect(address)
         self._closed = False
