@@ -144,7 +144,8 @@ class PythonNbdClient(object):
     OPTION_REPLY_MAGIC = 0x3e889045565a9
 
     NBD_REQUEST_MAGIC = 0x25609513
-    NBD_REPLY_MAGIC = 0x67446698
+    NBD_SIMPLE_REPLY_MAGIC = 0x67446698
+    NBD_STRUCTURED_REPLY_MAGIC = 0x668e33ef
 
     def __init__(self,
                  address,
@@ -314,13 +315,13 @@ class PythonNbdClient(object):
                              request_type, self._handle, offset, length)
         self._s.sendall(header)
 
-    def _parse_reply(self, data_length=0):
+    def _parse_simple_reply(self, data_length=0):
         print("NBD parsing response, data_length=%d" % data_length)
         reply = self._recvall(4 + 4 + 8)
         (magic, errno, handle) = struct.unpack(">LLQ", reply)
         print("NBD response magic='%x' errno='%d' handle='%d'" % (magic, errno,
                                                                   handle))
-        _assert_protocol(magic == self.NBD_REPLY_MAGIC)
+        _assert_protocol(magic == self.NBD_SIMPLE_REPLY_MAGIC)
         if handle != self._handle:
             raise NBDUnexpectedReplyHandleError(
                 expected=self._handle, received=handle)
@@ -342,7 +343,7 @@ class PythonNbdClient(object):
         self._flushed = False
         self._send_request_header(self.NBD_CMD_WRITE, offset, len(data))
         self._s.sendall(data)
-        self._parse_reply()
+        self._parse_simple_reply()
         return len(data)
 
     def read(self, offset, length):
@@ -354,7 +355,7 @@ class PythonNbdClient(object):
         _check_alignment("offset", offset)
         _check_alignment("length", length)
         self._send_request_header(self.NBD_CMD_READ, offset, length)
-        data = self._parse_reply(length)
+        data = self._parse_simple_reply(length)
         return data
 
     def _need_flush(self):
@@ -372,7 +373,7 @@ class PythonNbdClient(object):
             self._flushed = True
             return True
         self._send_request_header(self.NBD_CMD_FLUSH, 0, 0)
-        self._parse_reply()
+        self._parse_simple_reply()
         self._flushed = True
 
     def _disconnect(self):
