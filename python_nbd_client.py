@@ -147,6 +147,15 @@ class PythonNbdClient(object):
     NBD_SIMPLE_REPLY_MAGIC = 0x67446698
     NBD_STRUCTURED_REPLY_MAGIC = 0x668e33ef
 
+    # Structured reply types
+    NBD_REPLY_TYPE_NONE = 0
+    NBD_REPLY_OFFSET_DATA = 1
+    NBD_REPLY_TYPE_OFFSET_HOLE = 2
+    NBD_REPLY_TYPE_BLOCK_STATUS = 3
+    NBD_REPLY_TYPE_ERROR_BIT = (1 << 15)
+    NBD_REPLY_TYPE_ERROR = (1 << 15 + 1)
+    NBD_REPLY_TYPE_ERROR_OFFSET = (1 << 15 + 2)
+
     def __init__(self,
                  address,
                  exportname="",
@@ -335,13 +344,24 @@ class PythonNbdClient(object):
             raise NBDTransmissionError(errno)
         return data
 
-    def _parse_structured_reply_chunk(self, data_length=0):
+    def _handle_structured_reply_error(self, data):
+        # We ignore the other error data here
+        (errno, message_length) = struct.unpack(">LH", data[0:(2 + 4])
+        if (message_length > data_length - 6):
+            # message_length is too large to fit within data_length bytes
+            raise NBDProtocolError
+        raise NBDTransmissionError(errno)
+
+    def _parse_structured_reply_chunk(self):
         print("NBD parsing structured reply chunk")
         reply = self._recvall(4 + 2 + 2 + 8 + 4)
         (magic, flags, reply_type, handle, data_length) = struct.unpack(">LHHQL", reply)
         print("NBD structured reply magic='%x' flags='%s' reply_type='%d' handle='%d' data_length='%d'" % (magic, flags, reply_type, handle, data_length))
         _assert_protocol(magic == self.NBD_STRUCTURED_REPLY_MAGIC)
         self._check_handle(handle)
+        data = self._recvall(length=data_length)
+        if (reply_type & NBD_REPLY_TYPE_ERROR_BIT == NBD_REPLY_TYPE_ERROR_BIT):
+            self._handle_structured_reply_error(data)
 
     def write(self, data, offset):
         """
