@@ -121,14 +121,26 @@ class BackupConfig(object):
         print("Comparing checksums: local {} server {}".format(backup_checksum, checksum))
         assert backup_checksum == checksum
 
-        if cbt_enabled:
-            self._session.xenapi.VDI.data_destroy(vdi)
-        else:
-            self._session.xenapi.VDI.destroy(vdi)
-
     def _vm_backup(self, vm_snapshot, backup_dir):
-        for vdi in get_vdis_of_vm(self._session, vm_snapshot):
+        vdis = get_vdis_of_vm(self._session, vm_snapshot)
+
+        # Back up the VDIs:
+        for vdi in vdis:
             self._vdi_backup(backup_dir=backup_dir, vdi=vdi)
+
+
+        # Remove the backed up data from the server:
+
+        # The VM snapshot has to be removed before data_destroying the VDIs -
+        # data_destroy isn't allowed if the VDI has any plugged or unplugged
+        # VBDs, so as long as the VDI is linked to the VM snapshot by a VBD, we
+        # cannot data_destroy it.
+        self._session.xenapi.VM.destroy(vm_snapshot)
+        for vdi in vdis:
+            if self._session.xenapi.VDI.get_cbt_enabled(vdi):
+                self._session.xenapi.VDI.data_destroy(vdi)
+            else:
+                self._session.xenapi.VDI.destroy(vdi)
 
     def _snapshot_vm(self, timestamp):
         new_name = self._session.xenapi.VM.get_name_label(
