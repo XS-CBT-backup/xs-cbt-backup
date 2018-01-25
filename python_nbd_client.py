@@ -136,6 +136,7 @@ class PythonNbdClient(object):
     # Option types
     NBD_OPT_EXPORT_NAME = 1
     NBD_OPT_STARTTLS = 5
+    NBD_OPT_STRUCTURED_REPLY = 8
 
     # Option reply types
     NBD_REP_ACK = 1
@@ -161,6 +162,7 @@ class PythonNbdClient(object):
         self._closed = True
         self._handle = 0
         self._last_sent_option = None
+        self._structured_reply = False
         if unix:
             self._s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         else:
@@ -258,6 +260,11 @@ class PythonNbdClient(object):
         # receive reply
         data = self._parse_option_reply()
         _assert_protocol(len(data) == 0)
+
+    def negotiate_structured_reply(self):
+        self._send_option(self.NBD_OPT_STRUCTURED_REPLY)
+        self._parse_option_reply()
+        self._structured_reply = True
 
     def _fixed_new_style_handshake(self, exportname, cert, subject, use_tls):
         nbd_magic = self._recvall(len("NBDMAGIC"))
