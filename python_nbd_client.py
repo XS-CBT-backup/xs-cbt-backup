@@ -315,22 +315,33 @@ class PythonNbdClient(object):
                              request_type, self._handle, offset, length)
         self._s.sendall(header)
 
-    def _parse_simple_reply(self, data_length=0):
-        print("NBD parsing response, data_length=%d" % data_length)
-        reply = self._recvall(4 + 4 + 8)
-        (magic, errno, handle) = struct.unpack(">LLQ", reply)
-        print("NBD response magic='%x' errno='%d' handle='%d'" % (magic, errno,
-                                                                  handle))
-        _assert_protocol(magic == self.NBD_SIMPLE_REPLY_MAGIC)
+    def _check_handle(self, handle)
         if handle != self._handle:
             raise NBDUnexpectedReplyHandleError(
                 expected=self._handle, received=handle)
+
+    def _parse_simple_reply(self, data_length=0):
+        print("NBD parsing simple reply, data_length=%d" % data_length)
+        reply = self._recvall(4 + 4 + 8)
+        (magic, errno, handle) = struct.unpack(">LLQ", reply)
+        print("NBD simple reply magic='%x' errno='%d' handle='%d'" % (magic, errno,
+                                                                  handle))
+        _assert_protocol(magic == self.NBD_SIMPLE_REPLY_MAGIC)
+        self._check_handle(handle)
         self._handle += 1
         data = self._recvall(length=data_length)
         print("NBD response received data_length=%d bytes" % data_length)
         if errno != 0:
             raise NBDTransmissionError(errno)
         return data
+
+    def _parse_structured_reply_chunk(self, data_length=0):
+        print("NBD parsing structured reply chunk")
+        reply = self._recvall(4 + 2 + 2 + 8 + 4)
+        (magic, flags, reply_type, handle, data_length) = struct.unpack(">LHHQL", reply)
+        print("NBD structured reply magic='%x' flags='%s' reply_type='%d' handle='%d' data_length='%d'" % (magic, flags, reply_type, handle, data_length))
+        _assert_protocol(magic == self.NBD_STRUCTURED_REPLY_MAGIC)
+        self._check_handle(handle)
 
     def write(self, data, offset):
         """
