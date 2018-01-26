@@ -30,6 +30,7 @@ NBD_CMD_WRITE = 1
 # a disconnect request
 NBD_CMD_DISC = 2
 NBD_CMD_FLUSH = 3
+NBD_CMD_BLOCK_STATUS = 7
 
 # Transmission flags
 NBD_FLAG_HAS_FLAGS = (1 << 0)
@@ -422,6 +423,18 @@ class PythonNbdClient(object):
             raise NBDTransmissionError(errno)
         return data
 
+    def _handle_block_status_reply(self, fields):
+        data = self._recvall(fields['data_length'])
+        view = memoryview(data)
+        fields['context_id'] = struct.unpack(">L", view[:4])
+        view = view[4:]
+        descriptors = []
+        while view:
+            (length, status_flags) = struct.unpack(">LL", view[:8])
+            descriptors += [(length, status_flags)]
+            view = view[8:]
+        fields['descriptors'] = descriptors
+
     def _handle_structured_reply_error(self, fields):
         buf = self._recvall(4 + 2)
         (errno, message_length) = struct.unpack(">LH", buf)
@@ -450,6 +463,8 @@ class PythonNbdClient(object):
               (flags, reply_type, handle, data_length))
         self._check_handle(handle)
         fields = {'flags': flags, 'reply_type': reply_type, 'data_length': data_length}
+        if reply_type == NBD_REPLY_TYPE_BLOCK_STATUS:
+            self._handle_block_status_reply(fields)
         if reply_type & NBD_REPLY_TYPE_ERROR_BIT != 0:
             self._handle_structured_reply_error(fields)
         return fields
@@ -505,6 +520,12 @@ class PythonNbdClient(object):
         self._send_request_header(NBD_CMD_FLUSH, 0, 0)
         self._parse_simple_reply()
         self._flushed = True
+
+    def query_block_status(self, offset, length):
+        """Query block status in the range defined by length and offset."""
+        print("NBD_CMD_READ")
+        self._send_request_header(NBD_CMD_BLOCK_STATUS, offset, length)
+        return self._parse_structured_reply_chunks()
 
     def _disconnect(self):
         if self._transmission_phase:
