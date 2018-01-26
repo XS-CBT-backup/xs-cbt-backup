@@ -24,6 +24,48 @@ import socket
 import struct
 import ssl
 
+# Request types
+NBD_CMD_READ = 0
+NBD_CMD_WRITE = 1
+# a disconnect request
+NBD_CMD_DISC = 2
+NBD_CMD_FLUSH = 3
+
+# Transmission flags
+NBD_FLAG_HAS_FLAGS = (1 << 0)
+NBD_FLAG_SEND_FLUSH = (1 << 2)
+
+# Client flags
+NBD_FLAG_C_FIXED_NEWSTYLE = (1 << 0)
+
+# Option types
+NBD_OPT_EXPORT_NAME = 1
+NBD_OPT_ABORT = 2
+NBD_OPT_STARTTLS = 5
+NBD_OPT_STRUCTURED_REPLY = 8
+NBD_OPT_SET_META_CONTEXT = 10
+
+# Option reply types
+NBD_REP_ACK = 1
+
+OPTION_REPLY_MAGIC = 0x3e889045565a9
+
+NBD_REQUEST_MAGIC = 0x25609513
+NBD_SIMPLE_REPLY_MAGIC = 0x67446698
+NBD_STRUCTURED_REPLY_MAGIC = 0x668e33ef
+
+# Structured reply types
+NBD_REPLY_TYPE_NONE = 0
+NBD_REPLY_OFFSET_DATA = 1
+NBD_REPLY_TYPE_OFFSET_HOLE = 2
+NBD_REPLY_TYPE_BLOCK_STATUS = 3
+NBD_REPLY_TYPE_ERROR_BIT = (1 << 15)
+NBD_REPLY_TYPE_ERROR = (1 << 15 + 1)
+NBD_REPLY_TYPE_ERROR_OFFSET = (1 << 15 + 2)
+
+# Structured reply flags
+NBD_REPLY_FLAG_DONE = (1 << 0)
+
 
 class NBDEOFError(EOFError):
     """
@@ -119,48 +161,6 @@ class PythonNbdClient(object):
     connection to TLS during fixed-newstyle negotiation.
     """
 
-    # Request types
-    NBD_CMD_READ = 0
-    NBD_CMD_WRITE = 1
-    # a disconnect request
-    NBD_CMD_DISC = 2
-    NBD_CMD_FLUSH = 3
-
-    # Transmission flags
-    NBD_FLAG_HAS_FLAGS = (1 << 0)
-    NBD_FLAG_SEND_FLUSH = (1 << 2)
-
-    # Client flags
-    NBD_FLAG_C_FIXED_NEWSTYLE = (1 << 0)
-
-    # Option types
-    NBD_OPT_EXPORT_NAME = 1
-    NBD_OPT_ABORT = 2
-    NBD_OPT_STARTTLS = 5
-    NBD_OPT_STRUCTURED_REPLY = 8
-    NBD_OPT_SET_META_CONTEXT = 10
-
-    # Option reply types
-    NBD_REP_ACK = 1
-
-    OPTION_REPLY_MAGIC = 0x3e889045565a9
-
-    NBD_REQUEST_MAGIC = 0x25609513
-    NBD_SIMPLE_REPLY_MAGIC = 0x67446698
-    NBD_STRUCTURED_REPLY_MAGIC = 0x668e33ef
-
-    # Structured reply types
-    NBD_REPLY_TYPE_NONE = 0
-    NBD_REPLY_OFFSET_DATA = 1
-    NBD_REPLY_TYPE_OFFSET_HOLE = 2
-    NBD_REPLY_TYPE_BLOCK_STATUS = 3
-    NBD_REPLY_TYPE_ERROR_BIT = (1 << 15)
-    NBD_REPLY_TYPE_ERROR = (1 << 15 + 1)
-    NBD_REPLY_TYPE_ERROR_OFFSET = (1 << 15 + 2)
-
-    # Structured reply flags
-    NBD_REPLY_FLAG_DONE = (1 << 0)
-
     def __init__(self,
                  address,
                  exportname="",
@@ -230,6 +230,8 @@ class PythonNbdClient(object):
             bytes_left -= received
         return data
 
+    # Handshake phase
+
     def _send_option(self, option, data=b''):
         print("NBD sending option header")
         data_length = len(data)
@@ -246,11 +248,11 @@ class PythonNbdClient(object):
             ">QLLL", reply)
         print("NBD reply magic='%x' option='%d' reply_type='%d'" %
               (magic, option, reply_type))
-        _assert_protocol(magic == self.OPTION_REPLY_MAGIC)
+        _assert_protocol(magic == OPTION_REPLY_MAGIC)
         if option != self._last_sent_option:
             raise NBDUnexpectedOptionResponseError(
                 expected=self._last_sent_option, received=option)
-        if reply_type != self.NBD_REP_ACK:
+        if reply_type != NBD_REP_ACK:
             raise NBDOptionError(reply=reply_type)
         data = self._recvall(data_length)
         return data
@@ -274,13 +276,17 @@ class PythonNbdClient(object):
 
     def _initiate_tls_upgrade(self):
         # start TLS negotiation
-        self._send_option(self.NBD_OPT_STARTTLS)
+        self._send_option(NBD_OPT_STARTTLS)
         # receive reply
         data = self._parse_option_reply()
         _assert_protocol(len(data) == 0)
 
     def negotiate_structured_reply(self):
-        self._send_option(self.NBD_OPT_STRUCTURED_REPLY)
+        """
+        Negotiate use of the structured reply extension, fail if unsupported.
+        Only valid during the transmission phase.
+        """
+        self._send_option(NBD_OPT_STRUCTURED_REPLY)
         self._parse_option_reply()
         self._structured_reply = True
 
@@ -291,8 +297,8 @@ class PythonNbdClient(object):
         _assert_protocol(nbd_magic == b'IHAVEOPT')
         buf = self._recvall(2)
         self._flags = struct.unpack(">H", buf)[0]
-        _assert_protocol(self._flags & self.NBD_FLAG_HAS_FLAGS != 0)
-        client_flags = self.NBD_FLAG_C_FIXED_NEWSTYLE
+        _assert_protocol(self._flags & NBD_FLAG_HAS_FLAGS != 0)
+        client_flags = NBD_FLAG_C_FIXED_NEWSTYLE
         client_flags = struct.pack('>L', client_flags)
         self._s.sendall(client_flags)
 
@@ -303,9 +309,11 @@ class PythonNbdClient(object):
             self._upgrade_socket_to_tls(cert, subject)
 
     def connect(self, exportname):
-        """Valid only during the handshake phase. Requests the given export and enters the transmission phase."""
+        """
+        Valid only during the handshake phase. Requests the given
+        export and enters the transmission phase."""
         # request export
-        self._send_option(self.NBD_OPT_EXPORT_NAME, str.encode(exportname))
+        self._send_option(NBD_OPT_EXPORT_NAME, str.encode(exportname))
 
         # non-fixed newstyle negotiation: we get this if the server is willing
         # to allow the export
@@ -328,15 +336,17 @@ class PythonNbdClient(object):
         # ignore trailing zeroes
         self._recvall(124)
 
+    # Transmission phase
+
     def _send_request_header(self, request_type, offset, length):
         print("NBD request offset=%d length=%d" % (offset, length))
         command_flags = 0
         self._handle += 1
-        header = struct.pack('>LHHQQL', self.NBD_REQUEST_MAGIC, command_flags,
+        header = struct.pack('>LHHQQL', NBD_REQUEST_MAGIC, command_flags,
                              request_type, self._handle, offset, length)
         self._s.sendall(header)
 
-    def _check_handle(self, handle)
+    def _check_handle(self, handle):
         if handle != self._handle:
             raise NBDUnexpectedReplyHandleError(
                 expected=self._handle, received=handle)
@@ -345,9 +355,9 @@ class PythonNbdClient(object):
         print("NBD parsing simple reply, data_length=%d" % data_length)
         reply = self._recvall(4 + 4 + 8)
         (magic, errno, handle) = struct.unpack(">LLQ", reply)
-        print("NBD simple reply magic='%x' errno='%d' handle='%d'" % (magic, errno,
-                                                                  handle))
-        _assert_protocol(magic == self.NBD_SIMPLE_REPLY_MAGIC)
+        print("NBD simple reply magic='%x' errno='%d' handle='%d'" %
+              (magic, errno, handle))
+        _assert_protocol(magic == NBD_SIMPLE_REPLY_MAGIC)
         self._check_handle(handle)
         data = self._recvall(length=data_length)
         print("NBD response received data_length=%d bytes" % data_length)
@@ -355,42 +365,43 @@ class PythonNbdClient(object):
             raise NBDTransmissionError(errno)
         return data
 
-    def _handle_structured_reply_error(self, d):
+    def _handle_structured_reply_error(self, fields):
         buf = self._recvall(4 + 2)
         (errno, message_length) = struct.unpack(">LH", buf)
-        d['error'] = errno
-        remaining_length = d['data_length'] - 6
-        if (message_length > remaining_length):
+        fields['error'] = errno
+        remaining_length = fields['data_length'] - 6
+        if message_length > remaining_length:
             # message_length is too large to fit within data_length bytes
             raise NBDProtocolError
         data = self._recvall(remaining_length)
         view = memoryview(data)
-        d['message'] = str(view[0:message_length], encoding='utf-8')
+        fields['message'] = str(view[0:message_length], encoding='utf-8')
         view = view[message_length:]
-        if d['reply_type'] == NBD_REPLY_TYPE_ERROR_OFFSET:
+        if fields['reply_type'] == NBD_REPLY_TYPE_ERROR_OFFSET:
             (offset) = struct.unpack(">Q", view[:8])
-            d['offset'] = offset
+            fields['offset'] = offset
 
     def _parse_structured_reply_chunk(self, read_magic=True):
         print("NBD parsing structured reply chunk")
         if read_magic:
             magic = self._recvall(4)
             print("NBD structured reply magic='%x'" % (magic))
-            _assert_protocol(magic == self.NBD_STRUCTURED_REPLY_MAGIC)
+            _assert_protocol(magic == NBD_STRUCTURED_REPLY_MAGIC)
         reply = self._recvall(2 + 2 + 8 + 4)
         (flags, reply_type, handle, data_length) = struct.unpack(">HHQL", reply)
-        print("NBD structured reply flags='%s' reply_type='%d' handle='%d' data_length='%d'" % (flags, reply_type, handle, data_length))
+        print("NBD structured reply flags='%s' reply_type='%d' handle='%d' data_length='%d'" %
+              (flags, reply_type, handle, data_length))
         self._check_handle(handle)
-        d = { 'flags': flags, 'reply_type': reply_type, 'data_length': data_length }
-        if (reply_type & NBD_REPLY_TYPE_ERROR_BIT == NBD_REPLY_TYPE_ERROR_BIT):
-            self._handle_structured_reply_error(d)
-        return d
+        fields = {'flags': flags, 'reply_type': reply_type, 'data_length': data_length}
+        if reply_type & NBD_REPLY_TYPE_ERROR_BIT == NBD_REPLY_TYPE_ERROR_BIT:
+            self._handle_structured_reply_error(fields)
+        return fields
 
     def _parse_structured_reply_chunks(self, read_first_magic=True):
         reply = self._parse_structured_reply_chunk(read_first_magic)
         while True:
             yield reply
-            if (reply['flags'] & NBD_REPLY_FLAG_DONE == NBD_REPLY_FLAG_DONE):
+            if reply['flags'] & NBD_REPLY_FLAG_DONE == NBD_REPLY_FLAG_DONE:
                 return
             reply = self._parse_structured_reply_chunk()
 
@@ -403,7 +414,7 @@ class PythonNbdClient(object):
         _check_alignment("offset", offset)
         _check_alignment("size", len(data))
         self._flushed = False
-        self._send_request_header(self.NBD_CMD_WRITE, offset, len(data))
+        self._send_request_header(NBD_CMD_WRITE, offset, len(data))
         self._s.sendall(data)
         self._parse_simple_reply()
         return len(data)
@@ -416,12 +427,12 @@ class PythonNbdClient(object):
         print("NBD_CMD_READ")
         _check_alignment("offset", offset)
         _check_alignment("length", length)
-        self._send_request_header(self.NBD_CMD_READ, offset, length)
+        self._send_request_header(NBD_CMD_READ, offset, length)
         data = self._parse_simple_reply(length)
         return data
 
     def _need_flush(self):
-        return self._flags & self.NBD_FLAG_SEND_FLUSH != 0
+        return self._flags & NBD_FLAG_SEND_FLUSH != 0
 
     def flush(self):
         """
@@ -434,16 +445,16 @@ class PythonNbdClient(object):
         if self._need_flush() is False:
             self._flushed = True
             return True
-        self._send_request_header(self.NBD_CMD_FLUSH, 0, 0)
+        self._send_request_header(NBD_CMD_FLUSH, 0, 0)
         self._parse_simple_reply()
         self._flushed = True
 
     def _disconnect(self):
         if self._transmission_phase:
             print("NBD_CMD_DISC")
-            self._send_request_header(self.NBD_CMD_DISC, 0, 0)
+            self._send_request_header(NBD_CMD_DISC, 0, 0)
         else:
-            self._send_option(self.NBD_OPT_ABORT)
+            self._send_option(NBD_OPT_ABORT)
 
     def get_size(self):
         """
