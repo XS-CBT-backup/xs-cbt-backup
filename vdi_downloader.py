@@ -51,8 +51,9 @@ class VdiDownloader(object):
         with Path(out_file).open(output_mode.value) as out:
             for extent in extents:
                 (offset, length) = extent
-                for current_offset in range(offset, length, self._block_size):
-                    block_length = min(self._block_size, length - current_offset)
+                end = offset + length
+                for current_offset in range(offset, end, self._block_size):
+                    block_length = min(self._block_size, end - current_offset)
                     data = nbd_client.read(offset=current_offset, length=block_length)
                     out.seek(current_offset)
                     out.write(data)
