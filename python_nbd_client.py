@@ -135,8 +135,10 @@ class PythonNbdClient(object):
 
     # Option types
     NBD_OPT_EXPORT_NAME = 1
+    NBD_OPT_ABORT = 2
     NBD_OPT_STARTTLS = 5
     NBD_OPT_STRUCTURED_REPLY = 8
+    NBD_OPT_SET_META_CONTEXT = 10
 
     # Option reply types
     NBD_REP_ACK = 1
@@ -156,6 +158,9 @@ class PythonNbdClient(object):
     NBD_REPLY_TYPE_ERROR = (1 << 15 + 1)
     NBD_REPLY_TYPE_ERROR_OFFSET = (1 << 15 + 2)
 
+    # Structured reply flags
+    NBD_REPLY_FLAG_DONE = (1 << 0)
+
     def __init__(self,
                  address,
                  exportname="",
@@ -165,7 +170,8 @@ class PythonNbdClient(object):
                  cert=None,
                  use_tls=True,
                  new_style_handshake=True,
-                 unix=False):
+                 unix=False,
+                 connect=True):
         print("Connecting to export '{}' on host '{}' and port '{}'"
               .format(exportname, address, port))
         self._flushed = True
@@ -173,6 +179,7 @@ class PythonNbdClient(object):
         self._handle = 0
         self._last_sent_option = None
         self._structured_reply = False
+        self._transmission_phase = False
         if unix:
             self._s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         else:
@@ -184,10 +191,11 @@ class PythonNbdClient(object):
         self._closed = False
         if new_style_handshake:
             self._fixed_new_style_handshake(
-                exportname=exportname,
                 cert=cert,
                 subject=subject,
                 use_tls=use_tls)
+            if connect:
+                self.connect(exportname=exportname)
         else:
             self._old_style_handshake()
 
@@ -276,7 +284,7 @@ class PythonNbdClient(object):
         self._parse_option_reply()
         self._structured_reply = True
 
-    def _fixed_new_style_handshake(self, exportname, cert, subject, use_tls):
+    def _fixed_new_style_handshake(self, cert, subject, use_tls):
         nbd_magic = self._recvall(len("NBDMAGIC"))
         _assert_protocol(nbd_magic == b'NBDMAGIC')
         nbd_magic = self._recvall(len("IHAVEOPT"))
@@ -294,6 +302,8 @@ class PythonNbdClient(object):
             # upgrade socket to TLS
             self._upgrade_socket_to_tls(cert, subject)
 
+    def connect(self, exportname):
+        """Valid only during the handshake phase. Requests the given export and enters the transmission phase."""
         # request export
         self._send_option(self.NBD_OPT_EXPORT_NAME, str.encode(exportname))
 
@@ -305,6 +315,7 @@ class PythonNbdClient(object):
         transmission_flags = self._recvall(2)
         print("NBD got transmission flags: {}".format(transmission_flags))
         zeroes = self._recvall(124)
+        self._transmission_phase = True
         print("NBD got zeroes: {}".format(zeroes))
         print("Connected")
 
@@ -320,6 +331,7 @@ class PythonNbdClient(object):
     def _send_request_header(self, request_type, offset, length):
         print("NBD request offset=%d length=%d" % (offset, length))
         command_flags = 0
+        self._handle += 1
         header = struct.pack('>LHHQQL', self.NBD_REQUEST_MAGIC, command_flags,
                              request_type, self._handle, offset, length)
         self._s.sendall(header)
@@ -337,7 +349,6 @@ class PythonNbdClient(object):
                                                                   handle))
         _assert_protocol(magic == self.NBD_SIMPLE_REPLY_MAGIC)
         self._check_handle(handle)
-        self._handle += 1
         data = self._recvall(length=data_length)
         print("NBD response received data_length=%d bytes" % data_length)
         if errno != 0:
@@ -428,8 +439,11 @@ class PythonNbdClient(object):
         self._flushed = True
 
     def _disconnect(self):
-        print("NBD_CMD_DISC")
-        self._send_request_header(self.NBD_CMD_DISC, 0, 0)
+        if self._transmission_phase:
+            print("NBD_CMD_DISC")
+            self._send_request_header(self.NBD_CMD_DISC, 0, 0)
+        else:
+            self._send_option(self.NBD_OPT_ABORT)
 
     def get_size(self):
         """
