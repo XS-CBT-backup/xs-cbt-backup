@@ -43,10 +43,13 @@ NBD_OPT_EXPORT_NAME = 1
 NBD_OPT_ABORT = 2
 NBD_OPT_STARTTLS = 5
 NBD_OPT_STRUCTURED_REPLY = 8
+NBD_OPT_LIST_META_CONTEXT = 9
 NBD_OPT_SET_META_CONTEXT = 10
 
 # Option reply types
+NBD_REP_ERROR_BIT = (1 << 31)
 NBD_REP_ACK = 1
+NBD_REP_META_CONTEXT = 4
 
 OPTION_REPLY_MAGIC = 0x3e889045565a9
 
@@ -232,6 +235,8 @@ class PythonNbdClient(object):
 
     # Handshake phase
 
+    #  Newstyle handshake
+
     def _send_option(self, option, data=b''):
         print("NBD sending option header")
         data_length = len(data)
@@ -252,10 +257,24 @@ class PythonNbdClient(object):
         if option != self._last_sent_option:
             raise NBDUnexpectedOptionResponseError(
                 expected=self._last_sent_option, received=option)
-        if reply_type != NBD_REP_ACK:
+        if reply_type & NBD_REP_ERROR_BIT != 0:
             raise NBDOptionError(reply=reply_type)
         data = self._recvall(data_length)
+        return (reply_type, data)
+
+    def _parse_option_reply_ack(self):
+        (reply_type, data) = self._parse_option_reply()
+        if reply_type != NBD_REP_ACK:
+            raise NBDProtocolError()
         return data
+
+    def _parse_meta_context_reply(self):
+        (reply_type, data) = self._parse_option_reply()
+        if reply_type == NBD_REP_ACK:
+            return None
+        (context_id) = struct.unpack(">L", data[:4])
+        name = str(data[4:], encoding='utf-8')
+        return (context_id, name)
 
     def _upgrade_socket_to_tls(self, cert, subject):
         # Forcing the client to use TLSv1_2
@@ -278,17 +297,53 @@ class PythonNbdClient(object):
         # start TLS negotiation
         self._send_option(NBD_OPT_STARTTLS)
         # receive reply
-        data = self._parse_option_reply()
+        data = self._parse_option_reply_ack()
         _assert_protocol(len(data) == 0)
 
     def negotiate_structured_reply(self):
         """
         Negotiate use of the structured reply extension, fail if unsupported.
-        Only valid during the transmission phase.
+        Only valid during the handshake phase.
         """
         self._send_option(NBD_OPT_STRUCTURED_REPLY)
-        self._parse_option_reply()
+        self._parse_option_reply_ack()
         self._structured_reply = True
+
+    def _send_meta_context_option(self, option, export_name, queries):
+        data = bytes()
+        data += struct.pack('>L', len(export_name))
+        data += export_name.encode('utf-8')
+        data += struct.pack('>L', len(queries))
+        for query in queries:
+            data += struct.pack('>L', len(query))
+            data += query.encode('utf-8')
+        self._send_option(option, data)
+        while True:
+            reply = self._parse_meta_context_reply()
+            if reply is None:
+                break
+            yield reply
+
+    def set_meta_contexts(self, export_name, queries):
+        """
+        Change the set of active metadata contexts. Only valid during the
+        handshake phase.
+        """
+        self._send_meta_context_option(
+            option=NBD_OPT_SET_META_CONTEXT,
+            export_name=export_name,
+            queries=queries)
+
+    def list_meta_contexts(self, export_name, queries):
+        """
+        Return the metadata contexts available on the export matching one or
+        more of the queries as (metadata context ID, metadata context name)
+        pairs.
+        """
+        self._send_meta_context_option(
+            option=NBD_OPT_LIST_META_CONTEXT,
+            export_name=export_name,
+            queries=queries)
 
     def _fixed_new_style_handshake(self, cert, subject, use_tls):
         nbd_magic = self._recvall(len("NBDMAGIC"))
@@ -326,6 +381,8 @@ class PythonNbdClient(object):
         self._transmission_phase = True
         print("NBD got zeroes: {}".format(zeroes))
         print("Connected")
+
+    #  Oldstyle handshake
 
     def _old_style_handshake(self):
         nbd_magic = self._recvall(len("NBDMAGIC"))
@@ -393,7 +450,7 @@ class PythonNbdClient(object):
               (flags, reply_type, handle, data_length))
         self._check_handle(handle)
         fields = {'flags': flags, 'reply_type': reply_type, 'data_length': data_length}
-        if reply_type & NBD_REPLY_TYPE_ERROR_BIT == NBD_REPLY_TYPE_ERROR_BIT:
+        if reply_type & NBD_REPLY_TYPE_ERROR_BIT != 0:
             self._handle_structured_reply_error(fields)
         return fields
 
