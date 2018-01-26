@@ -344,22 +344,21 @@ class PythonNbdClient(object):
             raise NBDTransmissionError(errno)
         return data
 
-    def _handle_structured_reply_error(self, reply_type, data_length):
-        d = {}
+    def _handle_structured_reply_error(self, d):
         buf = self._recvall(4 + 2)
         (errno, message_length) = struct.unpack(">LH", buf)
         d['error'] = errno
-        if (message_length > data_length - 6):
+        remaining_length = d['data_length'] - 6
+        if (message_length > remaining_length):
             # message_length is too large to fit within data_length bytes
             raise NBDProtocolError
-        data = self._recvall(data_length - 6)
+        data = self._recvall(remaining_length)
         view = memoryview(data)
         d['message'] = str(view[0:message_length], encoding='utf-8')
         view = view[message_length:]
-        if reply_type == NBD_REPLY_TYPE_ERROR_OFFSET:
+        if d['reply_type'] == NBD_REPLY_TYPE_ERROR_OFFSET:
             (offset) = struct.unpack(">Q", view[:8])
             d['offset'] = offset
-        return d
 
     def _parse_structured_reply_chunk(self, read_magic=True):
         print("NBD parsing structured reply chunk")
@@ -371,8 +370,18 @@ class PythonNbdClient(object):
         (flags, reply_type, handle, data_length) = struct.unpack(">HHQL", reply)
         print("NBD structured reply flags='%s' reply_type='%d' handle='%d' data_length='%d'" % (flags, reply_type, handle, data_length))
         self._check_handle(handle)
+        d = { 'flags': flags, 'reply_type': reply_type, 'data_length': data_length }
         if (reply_type & NBD_REPLY_TYPE_ERROR_BIT == NBD_REPLY_TYPE_ERROR_BIT):
-            self._handle_structured_reply_error(reply_type, data_length)
+            self._handle_structured_reply_error(d)
+        return d
+
+    def _parse_structured_reply_chunks(self, read_first_magic=True):
+        reply = self._parse_structured_reply_chunk(read_first_magic)
+        while True:
+            yield reply
+            if (reply['flags'] & NBD_REPLY_FLAG_DONE == NBD_REPLY_FLAG_DONE):
+                return
+            reply = self._parse_structured_reply_chunk()
 
     def write(self, data, offset):
         """
