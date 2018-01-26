@@ -344,24 +344,35 @@ class PythonNbdClient(object):
             raise NBDTransmissionError(errno)
         return data
 
-    def _handle_structured_reply_error(self, data):
-        # We ignore the other error data here
-        (errno, message_length) = struct.unpack(">LH", data[0:(2 + 4])
+    def _handle_structured_reply_error(self, reply_type, data_length):
+        d = {}
+        buf = self._recvall(4 + 2)
+        (errno, message_length) = struct.unpack(">LH", buf)
+        d['error'] = errno
         if (message_length > data_length - 6):
             # message_length is too large to fit within data_length bytes
             raise NBDProtocolError
-        raise NBDTransmissionError(errno)
+        data = self._recvall(data_length - 6)
+        view = memoryview(data)
+        d['message'] = str(view[0:message_length], encoding='utf-8')
+        view = view[message_length:]
+        if reply_type == NBD_REPLY_TYPE_ERROR_OFFSET:
+            (offset) = struct.unpack(">Q", view[:8])
+            d['offset'] = offset
+        return d
 
-    def _parse_structured_reply_chunk(self):
+    def _parse_structured_reply_chunk(self, read_magic=True):
         print("NBD parsing structured reply chunk")
-        reply = self._recvall(4 + 2 + 2 + 8 + 4)
-        (magic, flags, reply_type, handle, data_length) = struct.unpack(">LHHQL", reply)
-        print("NBD structured reply magic='%x' flags='%s' reply_type='%d' handle='%d' data_length='%d'" % (magic, flags, reply_type, handle, data_length))
-        _assert_protocol(magic == self.NBD_STRUCTURED_REPLY_MAGIC)
+        if read_magic:
+            magic = self._recvall(4)
+            print("NBD structured reply magic='%x'" % (magic))
+            _assert_protocol(magic == self.NBD_STRUCTURED_REPLY_MAGIC)
+        reply = self._recvall(2 + 2 + 8 + 4)
+        (flags, reply_type, handle, data_length) = struct.unpack(">HHQL", reply)
+        print("NBD structured reply flags='%s' reply_type='%d' handle='%d' data_length='%d'" % (flags, reply_type, handle, data_length))
         self._check_handle(handle)
-        data = self._recvall(length=data_length)
         if (reply_type & NBD_REPLY_TYPE_ERROR_BIT == NBD_REPLY_TYPE_ERROR_BIT):
-            self._handle_structured_reply_error(data)
+            self._handle_structured_reply_error(reply_type, data_length)
 
     def write(self, data, offset):
         """
