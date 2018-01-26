@@ -6,13 +6,14 @@ contents are identical.
 """
 
 import hashlib
+from pathlib import Path
 
 
 def file_checksum(filepath):
     """
     Compute the MD5 checksum of the file.
     """
-    with open(filepath, 'rb') as infile:
+    with Path(filepath).open('rb') as infile:
         hasher = hashlib.md5()
         while True:
             data = infile.read(65536)
