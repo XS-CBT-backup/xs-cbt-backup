@@ -1,17 +1,16 @@
 """
 Module for computing checksums for validating backup / restore.
-The VDI checksums and file checksums computed by the functions in this
-module can be compared against each other, and they should match if the
-contents are identical.
 """
 
 import hashlib
 from pathlib import Path
 
 
-def file_checksum(filepath):
+def md5sum(filepath):
     """
-    Compute the MD5 checksum of the file.
+    Compute the MD5 checksum of the file.  This can be computed against the
+    output of VDI.checksum, and they should match if the contents are
+    identical.
     """
     with Path(filepath).open('rb') as infile:
         hasher = hashlib.md5()
@@ -21,10 +20,3 @@ def file_checksum(filepath):
                 break
             hasher.update(data)
     return hasher.hexdigest()
-
-
-def vdi_checksum(session, vdi):
-    """
-    Compute the checksum of the VDI.
-    """
-    return session.xenapi.VDI.checksum(vdi)

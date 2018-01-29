@@ -2,6 +2,8 @@
 
 import datetime
 import logging
+import time
+import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 
 import XenAPI
@@ -52,7 +54,8 @@ class BackupConfig(object):
         self._vm_dir = self._backup_dir / vm_uuid
         self._vm_dir.mkdir(exist_ok=True)
 
-    def _get_new_backup_dir(self, timestamp):
+    def _get_new_backup_dir(self):
+        timestamp = _get_timestamp()
         backup_dir = self._vm_dir / timestamp
         backup_dir.mkdir()
         print("Created new backup directory {}".format(backup_dir))
@@ -90,6 +93,18 @@ class BackupConfig(object):
             if b is not None)
         return next(iter(backups_from_newest_to_oldest), None)
 
+    def _compare_checksums(self, vdi, backup):
+        print("Starting to checksum VDI on server side")
+        task = self._session.xenapi.Async.VDI.checksum(vdi)
+        print("Checksumming local backup")
+        backup_checksum = md5sum.md5sum(backup)
+        print("Waiting for server-side checksum to finish...")
+        while self._session.xenapi.task.get_status(task) == "pending":
+            time.sleep(1)
+        checksum = ElementTree.fromstring(self._session.xenapi.task.get_result(task)).text
+        print("Comparing checksums: local {} server {}".format(backup_checksum, checksum))
+        assert backup_checksum == checksum
+
     def _vdi_backup(self, backup_dir, vdi):
         """
         Backs up a VDI of the newly-created VM snapshot and then cleans
@@ -100,8 +115,6 @@ class BackupConfig(object):
         """
         vdi_uuid = self._session.xenapi.VDI.get_uuid(vdi)
         print("Backing up VDI {} with UUID {}".format(vdi, vdi_uuid))
-        print("Checksumming VDI on server side")
-        checksum = md5sum.vdi_checksum(self._session, vdi)
         output_file = backup_dir / vdi_uuid
         cbt_enabled = self._session.xenapi.VDI.get_cbt_enabled(vdi)
 
@@ -118,10 +131,7 @@ class BackupConfig(object):
                 vdi=vdi,
                 latest_backup=latest_backup,
                 output_file=output_file)
-        print("Checksumming local backup")
-        backup_checksum = md5sum.file_checksum(output_file)
-        print("Comparing checksums: local {} server {}".format(backup_checksum, checksum))
-        assert backup_checksum == checksum
+        self._compare_checksums(vdi=vdi, backup=output_file)
 
     def _vm_backup(self, vm_snapshot, backup_dir):
         vdis = get_vdis_of_vm(self._session, vm_snapshot)
@@ -144,9 +154,9 @@ class BackupConfig(object):
             else:
                 self._session.xenapi.VDI.destroy(vdi)
 
-    def _snapshot_vm(self, timestamp):
+    def _snapshot_vm(self):
         new_name = self._session.xenapi.VM.get_name_label(
-            self._vm) + "_cbt_backup_" + timestamp
+            self._vm) + "_tmp_cbt_backup_snapshot"
         print("Snapshotting VM {} as snapshot '{}".format(self._vm, new_name))
         return self._session.xenapi.VM.snapshot(self._vm, new_name)
 
@@ -158,9 +168,8 @@ class BackupConfig(object):
         print(
             "Backups of VM {} are stored in {}".format(self._vm, self._vm_dir))
         enable_cbt(self._session, self._vm)
-        timestamp = _get_timestamp()
-        backup_dir = self._get_new_backup_dir(timestamp)
-        snapshot = self._snapshot_vm(timestamp)
+        backup_dir = self._get_new_backup_dir()
+        snapshot = self._snapshot_vm()
 
         self._vm_backup(vm_snapshot=snapshot, backup_dir=backup_dir)
 
