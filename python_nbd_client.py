@@ -217,7 +217,7 @@ class PythonNbdClient(object):
         Sends a flush request to the server if necessary and the server
         supports it, followed by a disconnect request.
         """
-        if not self._flushed:
+        if self._transmission_phase and (not self._flushed):
             self.flush()
         if not self._closed:
             self._disconnect()
@@ -370,7 +370,8 @@ class PythonNbdClient(object):
     def connect(self, exportname):
         """
         Valid only during the handshake phase. Requests the given
-        export and enters the transmission phase."""
+        export and enters the transmission phase.
+        """
         # request export
         self._send_option(NBD_OPT_EXPORT_NAME, str.encode(exportname))
 
@@ -382,8 +383,8 @@ class PythonNbdClient(object):
         transmission_flags = self._recvall(2)
         logger.debug("NBD got transmission flags: %s", transmission_flags)
         zeroes = self._recvall(124)
-        self._transmission_phase = True
         logger.debug("NBD got zeroes: %s", zeroes)
+        self._transmission_phase = True
         logger.debug("Connected")
 
     #  Oldstyle handshake
@@ -396,6 +397,7 @@ class PythonNbdClient(object):
         _assert_protocol(magic == 0x00420281861253)
         # ignore trailing zeroes
         self._recvall(124)
+        self._transmission_phase = True
 
     # Transmission phase
 
