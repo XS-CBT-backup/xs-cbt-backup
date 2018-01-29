@@ -25,6 +25,8 @@ import struct
 import ssl
 import logging
 
+logger = logging.getLogger('python_nbd_client')
+
 # Request types
 NBD_CMD_READ = 0
 NBD_CMD_WRITE = 1
@@ -177,7 +179,7 @@ class PythonNbdClient(object):
                  new_style_handshake=True,
                  unix=False,
                  connect=True):
-        logging.info("Connecting to export '%s' on host '%s' and port '%s'",
+        logger.info("Connecting to export '%s' on host '%s' and port '%s'",
                      exportname, address, port)
         self._flushed = True
         self._closed = True
@@ -240,20 +242,20 @@ class PythonNbdClient(object):
     #  Newstyle handshake
 
     def _send_option(self, option, data=b''):
-        logging.debug("NBD sending option header")
+        logger.debug("NBD sending option header")
         data_length = len(data)
-        logging.debug("option='%d' data_length='%d'", option, data_length)
+        logger.debug("option='%d' data_length='%d'", option, data_length)
         self._s.sendall(b'IHAVEOPT')
         header = struct.pack(">LL", option, data_length)
         self._s.sendall(header + data)
         self._last_sent_option = option
 
     def _parse_option_reply(self):
-        logging.debug("NBD parsing option reply")
+        logger.debug("NBD parsing option reply")
         reply = self._recvall(8 + 4 + 4 + 4)
         (magic, option, reply_type, data_length) = struct.unpack(
             ">QLLL", reply)
-        logging.debug("NBD reply magic='%x' option='%d' reply_type='%d'",
+        logger.debug("NBD reply magic='%x' option='%d' reply_type='%d'",
                       magic, option, reply_type)
         _assert_protocol(magic == OPTION_REPLY_MAGIC)
         if option != self._last_sent_option:
@@ -378,11 +380,11 @@ class PythonNbdClient(object):
         self._size = struct.unpack(">Q", buf)[0]
         # ignore the transmission flags (& zeroes)
         transmission_flags = self._recvall(2)
-        logging.debug("NBD got transmission flags: %s", transmission_flags)
+        logger.debug("NBD got transmission flags: %s", transmission_flags)
         zeroes = self._recvall(124)
         self._transmission_phase = True
-        logging.debug("NBD got zeroes: %s", zeroes)
-        logging.debug("Connected")
+        logger.debug("NBD got zeroes: %s", zeroes)
+        logger.debug("Connected")
 
     #  Oldstyle handshake
 
@@ -398,7 +400,7 @@ class PythonNbdClient(object):
     # Transmission phase
 
     def _send_request_header(self, request_type, offset, length):
-        logging.debug("NBD request offset=%d length=%d", offset, length)
+        logger.debug("NBD request offset=%d length=%d", offset, length)
         command_flags = 0
         self._handle += 1
         header = struct.pack('>LHHQQL', NBD_REQUEST_MAGIC, command_flags,
@@ -411,15 +413,15 @@ class PythonNbdClient(object):
                 expected=self._handle, received=handle)
 
     def _parse_simple_reply(self, data_length=0):
-        logging.debug("NBD parsing simple reply, data_length=%d", data_length)
+        logger.debug("NBD parsing simple reply, data_length=%d", data_length)
         reply = self._recvall(4 + 4 + 8)
         (magic, errno, handle) = struct.unpack(">LLQ", reply)
-        logging.debug("NBD simple reply magic='%x' errno='%d' handle='%d'",
+        logger.debug("NBD simple reply magic='%x' errno='%d' handle='%d'",
                       magic, errno, handle)
         _assert_protocol(magic == NBD_SIMPLE_REPLY_MAGIC)
         self._check_handle(handle)
         data = self._recvall(length=data_length)
-        logging.debug("NBD response received data_length=%d bytes", data_length)
+        logger.debug("NBD response received data_length=%d bytes", data_length)
         if errno != 0:
             raise NBDTransmissionError(errno)
         return data
@@ -453,14 +455,14 @@ class PythonNbdClient(object):
             fields['offset'] = offset
 
     def _parse_structured_reply_chunk(self, read_magic=True):
-        logging.debug("NBD parsing structured reply chunk")
+        logger.debug("NBD parsing structured reply chunk")
         if read_magic:
             magic = self._recvall(4)
-            logging.debug("NBD structured reply magic='%x'", magic)
+            logger.debug("NBD structured reply magic='%x'", magic)
             _assert_protocol(magic == NBD_STRUCTURED_REPLY_MAGIC)
         reply = self._recvall(2 + 2 + 8 + 4)
         (flags, reply_type, handle, data_length) = struct.unpack(">HHQL", reply)
-        logging.debug("NBD structured reply flags='%s' reply_type='%d' handle='%d' data_length='%d'",
+        logger.debug("NBD structured reply flags='%s' reply_type='%d' handle='%d' data_length='%d'",
                       flags, reply_type, handle, data_length)
         self._check_handle(handle)
         fields = {'flags': flags, 'reply_type': reply_type, 'data_length': data_length}
@@ -483,7 +485,7 @@ class PythonNbdClient(object):
         Writes the given bytes to the export, starting at the given
         offset.
         """
-        logging.debug("NBD_CMD_WRITE")
+        logger.debug("NBD_CMD_WRITE")
         _check_alignment("offset", offset)
         _check_alignment("size", len(data))
         self._flushed = False
@@ -497,7 +499,7 @@ class PythonNbdClient(object):
         Returns length number of bytes read from the export, starting at
         the given offset.
         """
-        logging.debug("NBD_CMD_READ")
+        logger.debug("NBD_CMD_READ")
         _check_alignment("offset", offset)
         _check_alignment("length", length)
         self._send_request_header(NBD_CMD_READ, offset, length)
@@ -514,7 +516,7 @@ class PythonNbdClient(object):
         (the writes for which the server has already sent a reply to the
         client) to be written to permanent storage.
         """
-        logging.debug("NBD_CMD_FLUSH")
+        logger.debug("NBD_CMD_FLUSH")
         if self._need_flush() is False:
             self._flushed = True
             return True
@@ -524,13 +526,13 @@ class PythonNbdClient(object):
 
     def query_block_status(self, offset, length):
         """Query block status in the range defined by length and offset."""
-        logging.debug("NBD_CMD_READ")
+        logger.debug("NBD_CMD_READ")
         self._send_request_header(NBD_CMD_BLOCK_STATUS, offset, length)
         return self._parse_structured_reply_chunks()
 
     def _disconnect(self):
         if self._transmission_phase:
-            logging.debug("NBD_CMD_DISC")
+            logger.debug("NBD_CMD_DISC")
             self._send_request_header(NBD_CMD_DISC, 0, 0)
         else:
             self._send_option(NBD_OPT_ABORT)
