@@ -13,7 +13,8 @@ PROGRAM_NAME = "backup.py"
 
 def get_vdis_of_vm(session, vm_ref):
     """
-    Returns the non-empty VDIs that are connected to a VM by a plugged or unplugged VBD.
+    Returns the non-empty VDIs that are connected to a VM by a plugged or
+    unplugged VBD.
     """
     for vbd in session.xenapi.VM.get_VBDs(vm_ref):
         vdi = session.xenapi.VBD.get_VDI(vbd)
