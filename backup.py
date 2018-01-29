@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import datetime
+import logging
 from pathlib import Path
 
 import XenAPI
@@ -165,6 +166,8 @@ class BackupConfig(object):
 
 
 def backup(master, vm, pwd, uname='root', tls=True):
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
     session = XenAPI.Session("http://" + master)
     session.xenapi.login_with_password(
         uname, pwd, "1.0", PROGRAM_NAME)
