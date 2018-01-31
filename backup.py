@@ -2,7 +2,10 @@
 
 import datetime
 import logging
+import shutil
+import ssl
 import time
+import urllib.request
 import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 
@@ -50,6 +53,7 @@ class BackupConfig(object):
             block_size=4 * 1024 * 1024,
             use_tls=use_tls)
 
+        self._vm_uuid = vm_uuid
         self._vm = self._session.xenapi.VM.get_by_uuid(vm_uuid)
         self._vm_dir = self._backup_dir / vm_uuid
         self._vm_dir.mkdir(exist_ok=True)
@@ -160,6 +164,26 @@ class BackupConfig(object):
         print("Snapshotting VM {} as snapshot '{}".format(self._vm, new_name))
         return self._session.xenapi.VM.snapshot(self._vm, new_name)
 
+    def _save_vm_metadata(self, backup_dir):
+        session_ref = self._session._session
+        host = self._session.xenapi.session.get_this_host(session_ref)
+        hostname = self._session.xenapi.host.get_hostname(host)
+        cert = self._session.xenapi.host.get_server_certificate(host)
+        url = "https://{}/export_metadata?session_id={}&uuid={}&export_snapshots=false".format(
+                hostname, session_ref, self._vm_uuid)
+
+        context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+        context.options &= ~ssl.OP_NO_TLSv1
+        context.options &= ~ssl.OP_NO_TLSv1_1
+        context.options &= ~ssl.OP_NO_SSLv2
+        context.options &= ~ssl.OP_NO_SSLv3
+        context.verify_mode = ssl.CERT_REQUIRED
+        context.check_hostname = True
+        context.load_verify_locations(cadata=cert)
+
+        with urllib.request.urlopen(url=url, context=context) as response, (backup_dir / "VM_metadata").open('wb') as out:
+            shutil.copyfileobj(response, out)
+
     def backup(self):
         """
         Takes a backup of the VM.
@@ -169,15 +193,15 @@ class BackupConfig(object):
             "Backups of VM {} are stored in {}".format(self._vm, self._vm_dir))
         enable_cbt(self._session, self._vm)
         backup_dir = self._get_new_backup_dir()
+        self._save_vm_metadata(backup_dir)
         snapshot = self._snapshot_vm()
-
         self._vm_backup(vm_snapshot=snapshot, backup_dir=backup_dir)
 
 
 def backup(master, vm, pwd, uname='root', tls=True):
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-    session = XenAPI.Session("http://" + master)
+    session = XenAPI.Session("https://" + master)
     session.xenapi.login_with_password(
         uname, pwd, "1.0", PROGRAM_NAME)
 
