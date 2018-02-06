@@ -40,6 +40,37 @@ def enable_cbt(session, vm_ref):
         session.xenapi.VDI.enable_cbt(vdi)
 
 
+def _get_connected_host(sr):
+
+
+def restore_vdi(session, host, sr, backup):
+    """
+    Returns a new VDI with the data taken from the backup.
+    """
+    vdi_record = {
+        'SR': sr,
+        'virtual_size': size,
+        'type': 'user',
+        'sharable': False,
+        'read_only': False,
+        'other_config': {},
+        'name_label': 'Restored from CBT backup'
+    }
+    vdi = session.xenapi.VDI.create(vdi_record)
+
+    hostname = session.xenapi.host.get_address(host)
+    s = requests.Session()
+    s.mount('https://', CustomHostnameCheckingAdapter(hostname))
+
+    address = session.xenapi.host.get_address()
+    url = 'https://{}/import_raw_vdi?session_id={}&vdi={}&format=raw'.format(address, session._session, vdi)
+
+    with open(backup, 'rb') as f:
+        s.put(url, data=f)
+
+    return vdi
+
+
 def _get_timestamp():
     # Avoid characters that are invalid in filenames.
     # ISO 8601
@@ -183,7 +214,8 @@ class BackupConfig(object):
         s.mount('https://', CustomHostnameCheckingAdapter(hostname))
 
         # Requests should be configured to use the system ca-certificates bundle:
-        # https://stackoverflow.com/questions/42982143/python-requests-how-to-use-system-ca-certificates-debian-ubuntu
+        # * https://stackoverflow.com/questions/42982143/python-requests-how-to-use-system-ca-certificates-debian-ubuntu
+        # * http://docs.python-requests.org/en/master/user/advanced/#ssl-cert-verification
         r = s.get(url)
         with (backup_dir / "VM_metadata").open('wb') as out:
             out.write(r.content)
@@ -200,6 +232,11 @@ class BackupConfig(object):
         self._save_vm_metadata(backup_dir)
         snapshot = self._snapshot_vm()
         self._vm_backup(vm_snapshot=snapshot, backup_dir=backup_dir)
+
+    def restore(timestamp, sr):
+        backup_dir = self._vm_dir / timestamp
+        for vdi in backup_dir.iterdir() if vdi != 'VM_metadata':
+            restore_vdi(
 
 
 def backup(master, vm, pwd, uname='root', tls=True):
