@@ -58,6 +58,23 @@ def _get_disk_size(cbt_bitmap):
     bitmap = BitArray(cbt_bitmap)
     return len(bitmap) * BLOCK_SIZE
 
+def _get_extent_stats(extents):
+    average_length = None
+    max_length = None
+    min_length = None
+    changed_blocks_size = 0
+    n = 0
+    for (offset, length) in extents:
+        n += 1
+        changed_blocks_size += length
+        max_length = length if max_length is None else max(max_length, length)
+        min_length = length if min_length is None else min(min_length, length)
+    average_length = None if n == 0 else (changed_blocks_size / n)
+    return { 'average_extent_length': average_length,
+             'max_extent_length': max_length,
+             'min_extent_length': min_length,
+             'changed_blocks_size': changed_blocks_size,
+             'extents': n }
 
 class CbtBitmap(object):
     """
@@ -84,7 +101,6 @@ class CbtBitmap(object):
         Return the size of the disk, and the total size of the changed
         blocks in a dictionary.
         """
-        stats = {}
+        stats = _get_extent_stats(self.get_extents())
         stats["size"] = _get_disk_size(self.bitmap)
-        stats["changed_blocks_size"] = _get_changed_blocks_size(self.bitmap)
         return stats

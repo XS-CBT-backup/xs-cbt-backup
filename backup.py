@@ -11,6 +11,7 @@ from pathlib import Path
 
 import XenAPI
 
+from cbt_bitmap import CbtBitmap
 from vdi_downloader import VdiDownloader
 import md5sum
 
@@ -126,6 +127,8 @@ class BackupConfig(object):
         if cbt_enabled:
             latest_backup = self._get_latest_backup_of_vdi(vdi)
             print("Found latest backup: {}".format(latest_backup))
+            stats = CbtBitmap(self._session.xenapi.VDI.list_changed_blocks(latest_backup[0], vdi)).get_statistics()
+            print("Stats: {}".format(stats))
         if latest_backup is None:
             self._downloader.full_vdi_backup(
                 vdi=vdi,
