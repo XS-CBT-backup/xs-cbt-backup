@@ -9,10 +9,13 @@ import urllib.request
 import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 
+import requests
+
 import XenAPI
 
 from cbt_bitmap import CbtBitmap
 from vdi_downloader import VdiDownloader
+from verify import CustomHostnameCheckingAdapter
 import md5sum
 
 PROGRAM_NAME = "backup.py"
@@ -171,21 +174,19 @@ class BackupConfig(object):
         session_ref = self._session._session
         host = self._session.xenapi.session.get_this_host(session_ref)
         hostname = self._session.xenapi.host.get_hostname(host)
+        address = self._session.xenapi.host.get_address(host)
         cert = self._session.xenapi.host.get_server_certificate(host)
         url = "https://{}/export_metadata?session_id={}&uuid={}&export_snapshots=false".format(
-                hostname, session_ref, self._vm_uuid)
+                address, session_ref, self._vm_uuid)
 
-        context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
-        context.options &= ~ssl.OP_NO_TLSv1
-        context.options &= ~ssl.OP_NO_TLSv1_1
-        context.options &= ~ssl.OP_NO_SSLv2
-        context.options &= ~ssl.OP_NO_SSLv3
-        context.verify_mode = ssl.CERT_REQUIRED
-        context.check_hostname = True
-        context.load_verify_locations(cadata=cert)
+        s = requests.Session()
+        s.mount('https://', CustomHostnameCheckingAdapter(hostname))
 
-        with urllib.request.urlopen(url=url, context=context) as response, (backup_dir / "VM_metadata").open('wb') as out:
-            shutil.copyfileobj(response, out)
+        # Requests should be configured to use the system ca-certificates bundle:
+        # https://stackoverflow.com/questions/42982143/python-requests-how-to-use-system-ca-certificates-debian-ubuntu
+        r = s.get(url)
+        with (backup_dir / "VM_metadata").open('wb') as out:
+            out.write(r.content)
 
     def backup(self):
         """
