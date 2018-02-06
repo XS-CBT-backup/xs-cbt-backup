@@ -70,7 +70,7 @@ class VdiDownloader(object):
         the bitmap via NBD, and writes these blocks to the output file.
         """
         bitmap = CbtBitmap(bitmap)
-        extents = bitmap.get_extents(merge_adjacent_extents=True)
+        extents = bitmap.get_extents()
         with self._nbd_client(vdi_nbd_server_info) as nbd_client:
             self._download_nbd_extents(
                 nbd_client=nbd_client,

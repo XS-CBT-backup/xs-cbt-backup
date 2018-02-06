@@ -41,35 +41,6 @@ def _bitmap_to_extents(cbt_bitmap):
         yield (start * BLOCK_SIZE, length * BLOCK_SIZE)
 
 
-def _merge_adjacent_extents(extents):
-    """
-    Coalesc the consecutive extents into one.
-
-    Args:
-        extents (iterator): increasingly ordered sequence of
-            non-overlapping (offset, length) pairs
-
-    >>> list(_merge_adjacent_extents(iter([(0,1),(1,3),(4,5)])))
-    [(0, 9)]
-    >>> list(_merge_adjacent_extents(iter([(0,1),(4,5)])))
-    [(0, 1), (4, 5)]
-    >>> list(_merge_adjacent_extents(iter([])))
-    []
-    >>> list(_merge_adjacent_extents(iter([(5,6)])))
-    [(5, 6)]
-    """
-    if not extents:
-        return
-    last = next(extents)
-    for extent in extents:
-        if extent[0] == (last[0] + last[1]):
-            last = (last[0], last[1] + extent[1])
-        else:
-            yield last
-            last = extent
-    yield last
-
-
 def _get_changed_blocks_size(cbt_bitmap):
     """
     Returns the overall size of the changed 64K blocks in the
@@ -100,14 +71,12 @@ class CbtBitmap(object):
         """
         self.bitmap = base64.b64decode(cbt_bitmap_b64)
 
-    def get_extents(self, merge_adjacent_extents):
+    def get_extents(self):
         """
         Returns an iterator containing the increasingly ordered sequence
         of the non-overlapping extents corresponding to this bitmap.
         """
         extents = _bitmap_to_extents(self.bitmap)
-        if merge_adjacent_extents:
-            return _merge_adjacent_extents(extents)
         return extents
 
     def get_statistics(self):
