@@ -9,14 +9,12 @@ import urllib.request
 import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 
-import requests
-
 import XenAPI
 
 from cbt_bitmap import CbtBitmap
 from vdi_downloader import VdiDownloader
-from verify import CustomHostnameCheckingAdapter
 import md5sum
+import verify
 
 PROGRAM_NAME = "backup.py"
 
@@ -40,7 +38,11 @@ def enable_cbt(session, vm_ref):
         session.xenapi.VDI.enable_cbt(vdi)
 
 
-def _get_connected_host(sr):
+def get_connected_host(session, sr):
+    """
+    Returns a host that can see the specified SR.
+    """
+    return next((pbd for pbd in session.xenapi.SR.get_PBDs(sr) if session.xenapi.PBD.get_currently_attached(pbd)), None)
 
 
 def restore_vdi(session, host, sr, backup):
@@ -58,15 +60,13 @@ def restore_vdi(session, host, sr, backup):
     }
     vdi = session.xenapi.VDI.create(vdi_record)
 
-    hostname = session.xenapi.host.get_address(host)
-    s = requests.Session()
-    s.mount('https://', CustomHostnameCheckingAdapter(hostname))
+    s = verify.session_for_host(self._session, host)
 
     address = session.xenapi.host.get_address()
     url = 'https://{}/import_raw_vdi?session_id={}&vdi={}&format=raw'.format(address, session._session, vdi)
 
-    with open(backup, 'rb') as f:
-        s.put(url, data=f)
+    with Path(backup).open('rb') as f:
+        s.put(url, data=f).raise_for_status()
 
     return vdi
 
@@ -75,6 +75,16 @@ def _get_timestamp():
     # Avoid characters that are invalid in filenames.
     # ISO 8601
     return datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+
+
+def _wait_for_task_to_finish(session, task):
+    while session.xenapi.task.get_status(task) == "pending":
+        time.sleep(1)
+
+
+def _wait_for_task_result(session, task):
+    _wait_for_task_to_finish(session=session, task=task)
+    return ElementTree.fromstring(session.xenapi.task.get_result(task)).text
 
 
 class BackupConfig(object):
@@ -138,9 +148,7 @@ class BackupConfig(object):
         print("Checksumming local backup")
         backup_checksum = md5sum.md5sum(backup)
         print("Waiting for server-side checksum to finish...")
-        while self._session.xenapi.task.get_status(task) == "pending":
-            time.sleep(1)
-        checksum = ElementTree.fromstring(self._session.xenapi.task.get_result(task)).text
+        checksum = _wait_for_task_result(session=self._session, task=task)
         print("Comparing checksums: local {} server {}".format(backup_checksum, checksum))
         assert backup_checksum == checksum
 
@@ -191,6 +199,7 @@ class BackupConfig(object):
         self._session.xenapi.VM.destroy(vm_snapshot)
         for vdi in vdis:
             if self._session.xenapi.VDI.get_cbt_enabled(vdi):
+                print('VDI.data_destroy')
                 self._session.xenapi.VDI.data_destroy(vdi)
             else:
                 self._session.xenapi.VDI.destroy(vdi)
@@ -204,14 +213,12 @@ class BackupConfig(object):
     def _save_vm_metadata(self, backup_dir):
         session_ref = self._session._session
         host = self._session.xenapi.session.get_this_host(session_ref)
-        hostname = self._session.xenapi.host.get_hostname(host)
         address = self._session.xenapi.host.get_address(host)
         cert = self._session.xenapi.host.get_server_certificate(host)
         url = "https://{}/export_metadata?session_id={}&uuid={}&export_snapshots=false".format(
                 address, session_ref, self._vm_uuid)
 
-        s = requests.Session()
-        s.mount('https://', CustomHostnameCheckingAdapter(hostname))
+        s = verify.session_for_host(self._session, host)
 
         # Requests should be configured to use the system ca-certificates bundle:
         # * https://stackoverflow.com/questions/42982143/python-requests-how-to-use-system-ca-certificates-debian-ubuntu
@@ -235,8 +242,30 @@ class BackupConfig(object):
 
     def restore(timestamp, sr):
         backup_dir = self._vm_dir / timestamp
-        for vdi in backup_dir.iterdir() if vdi != 'VM_metadata':
-            restore_vdi(
+        host = get_connected_host(session=session, sr=sr)
+        vdi_map = {}
+        vm_metadata = backup_dir / "VM_metadata"
+        for backup in backup_dir.iterdir():
+            if backup == vm_metadata:
+                continue
+            restored = restore_vdi(session=self._session, host=host, backup=backup)
+            vdi_uuid = backup.name
+            restored_uuid = self._session.xenapi.VDI.get_uuid(restored)
+            vdi_map[vdi_uuid] = restored_uuid
+        vdi_map_params = ""
+        for original_uuid, restored_uuid in vdi_map.items():
+            vdi_map_params += "&vdi:{}={}".format(original_uuid, restored_uuid)
+
+        address = session.xenapi.host.get_address()
+        task = self._session.xenapi.task.create("restore VM", "restore backed up VM metadata")
+        s = verify.session_for_host(self._session, host)
+
+        url = 'https://{}/import_metadata?session_id={}&task_id={}{}'.format(
+            address, self._session._session, task, vdi_map_params)
+        s.put(url, data=vm_metadata).raise_for_status()
+
+        vm = _wait_for_task_result(session=self._session, task=task)
+        print('restored VM {}'.format(vm))
 
 
 def backup(master, vm, pwd, uname='root', tls=True):
