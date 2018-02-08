@@ -183,7 +183,7 @@ class BackupConfig(object):
         self._compare_checksums(vdi=vdi, backup=output_file)
 
     def _vm_backup(self, vm_snapshot, backup_dir):
-        vdis = get_vdis_of_vm(self._session, vm_snapshot)
+        vdis = list(get_vdis_of_vm(self._session, vm_snapshot))
 
         # Back up the VDIs:
         for vdi in vdis:
@@ -197,11 +197,13 @@ class BackupConfig(object):
         # VBDs, so as long as the VDI is linked to the VM snapshot by a VBD, we
         # cannot data_destroy it.
         self._session.xenapi.VM.destroy(vm_snapshot)
+        print('Cleaning up VDIs: {}'.format(vdis))
         for vdi in vdis:
             if self._session.xenapi.VDI.get_cbt_enabled(vdi):
                 print('VDI.data_destroy')
                 self._session.xenapi.VDI.data_destroy(vdi)
             else:
+                print('VDI.destroy')
                 self._session.xenapi.VDI.destroy(vdi)
 
     def _snapshot_vm(self):
