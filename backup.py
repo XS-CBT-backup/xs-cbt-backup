@@ -168,14 +168,14 @@ class BackupConfig(object):
         latest_backup = None
         if cbt_enabled:
             latest_backup = self._get_latest_backup_of_vdi(vdi)
-            print("Found latest backup: {}".format(latest_backup))
-            stats = CbtBitmap(self._session.xenapi.VDI.list_changed_blocks(latest_backup[0], vdi)).get_statistics()
-            print("Stats: {}".format(stats))
         if latest_backup is None:
             self._downloader.full_vdi_backup(
                 vdi=vdi,
                 output_file=output_file)
         else:
+            print("Found latest backup: {}".format(latest_backup))
+            stats = CbtBitmap(self._session.xenapi.VDI.list_changed_blocks(latest_backup[0], vdi)).get_statistics()
+            print("Stats: {}".format(stats))
             self._downloader.incremental_vdi_backup(
                 vdi=vdi,
                 latest_backup=latest_backup,
@@ -223,6 +223,7 @@ class BackupConfig(object):
         # Requests should be configured to use the system ca-certificates bundle:
         # * https://stackoverflow.com/questions/42982143/python-requests-how-to-use-system-ca-certificates-debian-ubuntu
         # * http://docs.python-requests.org/en/master/user/advanced/#ssl-cert-verification
+        # For example, export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt on Ubuntu
         r = s.get(url)
         with (backup_dir / "VM_metadata").open('wb') as out:
             out.write(r.content)
@@ -240,7 +241,7 @@ class BackupConfig(object):
         snapshot = self._snapshot_vm()
         self._vm_backup(vm_snapshot=snapshot, backup_dir=backup_dir)
 
-    def restore(timestamp, sr):
+    def restore(self, timestamp, sr):
         backup_dir = self._vm_dir / timestamp
         host = get_connected_host(session=session, sr=sr)
         vdi_map = {}
@@ -268,24 +269,29 @@ class BackupConfig(object):
         print('restored VM {}'.format(vm))
 
 
-def backup(master, vm, pwd, uname='root', tls=True):
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+class Cli(object):
+    def __init__(self, master, vm, pwd, uname='root', tls=True):
+        logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-    session = XenAPI.Session("https://" + master)
-    session.xenapi.login_with_password(
-        uname, pwd, "1.0", PROGRAM_NAME)
+        self._session = XenAPI.Session("https://" + master)
+        self._session.xenapi.login_with_password(
+            uname, pwd, "1.0", PROGRAM_NAME)
 
-    backup_dir = Path.home() / ".cbt_backups"
+        backup_dir = Path.home() / ".cbt_backups"
 
-    backup_config = BackupConfig(
-        session=session,
-        backup_dir=backup_dir,
-        vm_uuid=vm,
-        use_tls=tls)
+        self._backup_config = BackupConfig(
+            session=self._session,
+            backup_dir=backup_dir,
+            vm_uuid=vm,
+            use_tls=tls)
 
-    backup_config.backup()
+    def backup(self):
+        self._backup_config.backup()
 
+    def restore(timestamp, sr):
+        sr = self._session.xenapi.SR.get_by_uuid(sr)
+        self._backup_config.restore(timestamp, sr)
 
 if __name__ == '__main__':
     import fire
-    fire.Fire(backup)
+    fire.Fire(Cli)
