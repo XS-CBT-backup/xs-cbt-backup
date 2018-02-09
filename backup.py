@@ -6,6 +6,7 @@ import shutil
 import ssl
 import time
 import urllib.request
+import os
 import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 
@@ -42,16 +43,18 @@ def get_connected_host(session, sr):
     """
     Returns a host that can see the specified SR.
     """
-    return next((pbd for pbd in session.xenapi.SR.get_PBDs(sr) if session.xenapi.PBD.get_currently_attached(pbd)), None)
+    return next((session.xenapi.PBD.get_host(pbd) for pbd in session.xenapi.SR.get_PBDs(sr) if session.xenapi.PBD.get_currently_attached(pbd)), None)
 
 
 def restore_vdi(session, host, sr, backup):
     """
     Returns a new VDI with the data taken from the backup.
     """
+    size = os.path.getsize(backup)
+    print('Creating VDI of size {}'.format(size))
     vdi_record = {
         'SR': sr,
-        'virtual_size': size,
+        'virtual_size': str(size), # ints are 64-bit and encoded as string in the XenAPI
         'type': 'user',
         'sharable': False,
         'read_only': False,
@@ -60,9 +63,9 @@ def restore_vdi(session, host, sr, backup):
     }
     vdi = session.xenapi.VDI.create(vdi_record)
 
-    s = verify.session_for_host(self._session, host)
+    s = verify.session_for_host(session, host)
 
-    address = session.xenapi.host.get_address()
+    address = session.xenapi.host.get_address(host)
     url = 'https://{}/import_raw_vdi?session_id={}&vdi={}&format=raw'.format(address, session._session, vdi)
 
     with Path(backup).open('rb') as f:
@@ -245,13 +248,13 @@ class BackupConfig(object):
 
     def restore(self, timestamp, sr):
         backup_dir = self._vm_dir / timestamp
-        host = get_connected_host(session=session, sr=sr)
+        host = get_connected_host(session=self._session, sr=sr)
         vdi_map = {}
         vm_metadata = backup_dir / "VM_metadata"
         for backup in backup_dir.iterdir():
             if backup == vm_metadata:
                 continue
-            restored = restore_vdi(session=self._session, host=host, backup=backup)
+            restored = restore_vdi(session=self._session, host=host, sr=sr, backup=backup)
             vdi_uuid = backup.name
             restored_uuid = self._session.xenapi.VDI.get_uuid(restored)
             vdi_map[vdi_uuid] = restored_uuid
@@ -259,7 +262,7 @@ class BackupConfig(object):
         for original_uuid, restored_uuid in vdi_map.items():
             vdi_map_params += "&vdi:{}={}".format(original_uuid, restored_uuid)
 
-        address = session.xenapi.host.get_address()
+        address = self._session.xenapi.host.get_address(host)
         task = self._session.xenapi.task.create("restore VM", "restore backed up VM metadata")
         s = verify.session_for_host(self._session, host)
 
@@ -268,7 +271,8 @@ class BackupConfig(object):
         s.put(url, data=vm_metadata).raise_for_status()
 
         vm = _wait_for_task_result(session=self._session, task=task)
-        print('restored VM {}'.format(vm))
+        print('restored VM {}'.format(self._session.xenapi.VM.get_uuid(vm)))
+        return vm
 
 
 class Cli(object):
@@ -290,7 +294,7 @@ class Cli(object):
     def backup(self):
         self._backup_config.backup()
 
-    def restore(timestamp, sr):
+    def restore(self, timestamp, sr):
         sr = self._session.xenapi.SR.get_by_uuid(sr)
         self._backup_config.restore(timestamp, sr)
 
