@@ -87,7 +87,10 @@ def _wait_for_task_to_finish(session, task):
 
 def _wait_for_task_result(session, task):
     _wait_for_task_to_finish(session=session, task=task)
-    return ElementTree.fromstring(session.xenapi.task.get_result(task)).text
+    print('task: {}'.format(session.xenapi.task.get_record(task)))
+    result = session.xenapi.task.get_result(task)
+    print('Got task result: {}'.format(result))
+    return ElementTree.fromstring(result).text
 
 
 class BackupConfig(object):
@@ -102,7 +105,11 @@ class BackupConfig(object):
             use_tls=use_tls)
 
         self._vm_uuid = vm_uuid
-        self._vm = self._session.xenapi.VM.get_by_uuid(vm_uuid)
+        self._vm = None
+        try:
+            self._session.xenapi.VM.get_by_uuid(vm_uuid)
+        except:
+            pass
         self._vm_dir = self._backup_dir / vm_uuid
         self._vm_dir.mkdir(exist_ok=True)
 
@@ -268,9 +275,11 @@ class BackupConfig(object):
 
         url = 'https://{}/import_metadata?session_id={}&task_id={}{}'.format(
             address, self._session._session, task, vdi_map_params)
-        s.put(url, data=vm_metadata).raise_for_status()
+        with vm_metadata.open('rb') as f:
+            s.put(url, data=f).raise_for_status()
 
         vm = _wait_for_task_result(session=self._session, task=task)
+        print('restored VM ref {}', vm)
         print('restored VM {}'.format(self._session.xenapi.VM.get_uuid(vm)))
         return vm
 
