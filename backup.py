@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 
+from pathlib import Path
+import argparse
 import datetime
 import logging
-import shutil
-import ssl
-import time
-import urllib.request
 import os
+import time
 import xml.etree.ElementTree as ElementTree
-from pathlib import Path
 
 import XenAPI
 
@@ -31,19 +29,21 @@ def get_vdis_of_vm(session, vm_ref):
             yield vdi
 
 
+def vdi_supports_cbt(session, vdi):
+    # For now, we cannot use the VDI's allowed_operations, because the CBT
+    # opeartions aren't yet included
+    sr = session.xenapi.VDI.get_SR(vdi)
+    required_operations = ['vdi_enable_cbt', 'vdi_list_changed_blocks', 'vdi_data_destroy']
+    return required_operations in session.xenapi.SR.get_allowed_operations(sr)
+
+
 def enable_cbt(session, vm_ref):
     """
     Enables CBT on all the VDIs of a VM.
     """
     for vdi in get_vdis_of_vm(session=session, vm_ref=vm_ref):
-        session.xenapi.VDI.enable_cbt(vdi)
-
-
-def get_connected_host(session, sr):
-    """
-    Returns a host that can see the specified SR.
-    """
-    return next((session.xenapi.PBD.get_host(pbd) for pbd in session.xenapi.SR.get_PBDs(sr) if session.xenapi.PBD.get_currently_attached(pbd)), None)
+        if vdi_supports_cbt(session=session, vdi=vdi):
+            session.xenapi.VDI.enable_cbt(vdi)
 
 
 def restore_vdi(session, host, sr, backup):
@@ -54,7 +54,8 @@ def restore_vdi(session, host, sr, backup):
     print('Creating VDI of size {}'.format(size))
     vdi_record = {
         'SR': sr,
-        'virtual_size': str(size), # ints are 64-bit and encoded as string in the XenAPI
+        # ints are 64-bit and encoded as string in the XenAPI:
+        'virtual_size': str(size),
         'type': 'user',
         'sharable': False,
         'read_only': False,
@@ -66,7 +67,8 @@ def restore_vdi(session, host, sr, backup):
     s = verify.session_for_host(session, host)
 
     address = session.xenapi.host.get_address(host)
-    url = 'https://{}/import_raw_vdi?session_id={}&vdi={}&format=raw'.format(address, session._session, vdi)
+    url = 'https://{}/import_raw_vdi?session_id={}&vdi={}&format=raw'.format(
+            address, session._session, vdi)
 
     with Path(backup).open('rb') as f:
         s.put(url, data=f).raise_for_status()
@@ -93,44 +95,46 @@ def _wait_for_task_result(session, task):
     return ElementTree.fromstring(result).text
 
 
+def _save_vm_metadata(session, vm_uuid, backup_dir):
+    session_ref = session._session
+    host = session.xenapi.session.get_this_host(session_ref)
+    address = session.xenapi.host.get_address(host)
+    url = ('https://{}/export_metadata'
+           '?session_id={}'
+           '&uuid={}'
+           '&export_snapshots=false').format(
+            address, session_ref, vm_uuid)
+
+    s = verify.session_for_host(session, host)
+
+    # Requests should be configured to use the system ca-certificates bundle:
+    # * https://stackoverflow.com/questions/42982143
+    # * http://docs.python-requests.org/en/master/user/advanced/#ssl-cert-verification
+    # For example, run
+    # "export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt" on Ubuntu.
+    r = s.get(url)
+    with (backup_dir / "VM_metadata").open('wb') as out:
+        out.write(r.content)
+
+
 class BackupConfig(object):
-    def __init__(self, session, backup_dir, vm_uuid, use_tls):
+    def __init__(self, session, backup_dir, use_tls):
         self._session = session
+
         self._backup_dir = backup_dir
-        self._vm = vm_uuid
 
         self._downloader = VdiDownloader(
             session=self._session,
             block_size=4 * 1024 * 1024,
             use_tls=use_tls)
 
-        self._vm_uuid = vm_uuid
-        self._vm = None
-        try:
-            self._session.xenapi.VM.get_by_uuid(vm_uuid)
-        except:
-            pass
-        self._vm_dir = self._backup_dir / vm_uuid
-        self._vm_dir.mkdir(exist_ok=True)
+    def _get_vm_dir(self, vm_uuid):
+        vm_dir = self._backup_dir / vm_uuid
+        vm_dir.mkdir(exist_ok=True)
+        return vm_dir
 
-    def _get_new_backup_dir(self):
-        timestamp = _get_timestamp()
-        backup_dir = self._vm_dir / timestamp
-        backup_dir.mkdir()
-        print("Created new backup directory {}".format(backup_dir))
-        return backup_dir
-
-    def _get_all_vdi_backups(self):
-        for vm_backup in self._vm_dir.iterdir():
-            for vdi_backup in vm_backup.iterdir():
-                yield vdi_backup
-
-    def _get_local_backup_of_snapshot(self, snapshot):
-        uuid = self._session.xenapi.VDI.get_uuid(snapshot)
-        local_backup = next((b for b in self._get_all_vdi_backups()
-                             if b.name == uuid),
-                            None)
-        return local_backup
+    def _get_local_backup_of_snapshot(self, snapshot_uuid):
+        return next(self._backup_dir.glob('**/{}'.format(snapshot_uuid)), None)
 
     def _snapshot_timestamp(self, snapshot):
         return self._session.xenapi.VDI.get_snapshot_time(snapshot)
@@ -159,7 +163,8 @@ class BackupConfig(object):
         backup_checksum = md5sum.md5sum(backup)
         print("Waiting for server-side checksum to finish...")
         checksum = _wait_for_task_result(session=self._session, task=task)
-        print("Comparing checksums: local {} server {}".format(backup_checksum, checksum))
+        print("Comparing checksums: local {} server {}".format(
+            backup_checksum, checksum))
         assert backup_checksum == checksum
 
     def _vdi_backup(self, backup_dir, vdi):
@@ -184,7 +189,9 @@ class BackupConfig(object):
                 output_file=output_file)
         else:
             print("Found latest backup: {}".format(latest_backup))
-            stats = CbtBitmap(self._session.xenapi.VDI.list_changed_blocks(latest_backup[0], vdi)).get_statistics()
+            changed_blocks = self._session.xenapi.VDI.list_changed_blocks(
+                    latest_backup[0], vdi)
+            stats = CbtBitmap(changed_blocks).get_statistics()
             print("Stats: {}".format(stats))
             self._downloader.incremental_vdi_backup(
                 vdi=vdi,
@@ -199,9 +206,7 @@ class BackupConfig(object):
         for vdi in vdis:
             self._vdi_backup(backup_dir=backup_dir, vdi=vdi)
 
-
         # Remove the backed up data from the server:
-
         # The VM snapshot has to be removed before data_destroying the VDIs -
         # data_destroy isn't allowed if the VDI has any plugged or unplugged
         # VBDs, so as long as the VDI is linked to the VM snapshot by a VBD, we
@@ -216,52 +221,45 @@ class BackupConfig(object):
                 print('VDI.destroy')
                 self._session.xenapi.VDI.destroy(vdi)
 
-    def _snapshot_vm(self):
+    def _snapshot_vm(self, vm):
         new_name = self._session.xenapi.VM.get_name_label(
-            self._vm) + "_tmp_cbt_backup_snapshot"
-        print("Snapshotting VM {} as snapshot '{}".format(self._vm, new_name))
-        return self._session.xenapi.VM.snapshot(self._vm, new_name)
+            vm) + "_tmp_cbt_backup_snapshot"
+        print("Snapshotting VM {} as snapshot '{}".format(vm, new_name))
+        return self._session.xenapi.VM.snapshot(vm, new_name)
 
-    def _save_vm_metadata(self, backup_dir):
-        session_ref = self._session._session
-        host = self._session.xenapi.session.get_this_host(session_ref)
-        address = self._session.xenapi.host.get_address(host)
-        cert = self._session.xenapi.host.get_server_certificate(host)
-        url = "https://{}/export_metadata?session_id={}&uuid={}&export_snapshots=false".format(
-                address, session_ref, self._vm_uuid)
-
-        s = verify.session_for_host(self._session, host)
-
-        # Requests should be configured to use the system ca-certificates bundle:
-        # * https://stackoverflow.com/questions/42982143/python-requests-how-to-use-system-ca-certificates-debian-ubuntu
-        # * http://docs.python-requests.org/en/master/user/advanced/#ssl-cert-verification
-        # For example, export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt on Ubuntu
-        r = s.get(url)
-        with (backup_dir / "VM_metadata").open('wb') as out:
-            out.write(r.content)
-
-    def backup(self):
+    def backup(self, vm_uuid):
         """
         Takes a backup of the VM.
         """
-        print("Backing up VM {}".format(self._vm))
-        print(
-            "Backups of VM {} are stored in {}".format(self._vm, self._vm_dir))
-        enable_cbt(self._session, self._vm)
-        backup_dir = self._get_new_backup_dir()
-        self._save_vm_metadata(backup_dir)
-        snapshot = self._snapshot_vm()
+        print("Backing up VM {}".format(vm_uuid))
+        vm = self._session.xenapi.VM.get_by_uuid(vm_uuid)
+
+        vm_dir = self._get_vm_dir(vm_uuid)
+        timestamp = _get_timestamp()
+        backup_dir = vm_dir / timestamp
+        backup_dir.mkdir()
+        print("Created new backup directory {}".format(backup_dir))
+
+        enable_cbt(self._session, vm)
+
+        snapshot = self._snapshot_vm(vm=vm)
+        snapshot_uuid = self._session.xenapi.VM.get_uuid(snapshot)
+
+        _save_vm_metadata(session=session, vm_uuid=snapshot_uuid, backup_dir=backup_dir)
+
         self._vm_backup(vm_snapshot=snapshot, backup_dir=backup_dir)
 
-    def restore(self, timestamp, sr):
-        backup_dir = self._vm_dir / timestamp
-        host = get_connected_host(session=self._session, sr=sr)
+        return timestamp
+
+    def restore(self, vm_uuid, timestamp, sr, host):
+        backup_dir = self._get_vm_dir(vm_uuid) / timestamp
         vdi_map = {}
         vm_metadata = backup_dir / "VM_metadata"
         for backup in backup_dir.iterdir():
             if backup == vm_metadata:
                 continue
-            restored = restore_vdi(session=self._session, host=host, sr=sr, backup=backup)
+            restored = restore_vdi(
+                    session=self._session, host=host, sr=sr, backup=backup)
             vdi_uuid = backup.name
             restored_uuid = self._session.xenapi.VDI.get_uuid(restored)
             vdi_map[vdi_uuid] = restored_uuid
@@ -270,7 +268,8 @@ class BackupConfig(object):
             vdi_map_params += "&vdi:{}={}".format(original_uuid, restored_uuid)
 
         address = self._session.xenapi.host.get_address(host)
-        task = self._session.xenapi.task.create("restore VM", "restore backed up VM metadata")
+        task = self._session.xenapi.task.create(
+                "restore VM", "restore backed up VM metadata")
         s = verify.session_for_host(self._session, host)
 
         url = 'https://{}/import_metadata?session_id={}&task_id={}{}'.format(
@@ -279,34 +278,46 @@ class BackupConfig(object):
             s.put(url, data=f).raise_for_status()
 
         vm = _wait_for_task_result(session=self._session, task=task)
-        print('restored VM ref {}', vm)
         print('restored VM {}'.format(self._session.xenapi.VM.get_uuid(vm)))
         return vm
 
 
-class Cli(object):
-    def __init__(self, master, vm, pwd, uname='root', tls=True):
-        logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
-        self._session = XenAPI.Session("https://" + master)
-        self._session.xenapi.login_with_password(
-            uname, pwd, "1.0", PROGRAM_NAME)
-
-        backup_dir = Path.home() / ".cbt_backups"
-
-        self._backup_config = BackupConfig(
-            session=self._session,
-            backup_dir=backup_dir,
-            vm_uuid=vm,
-            use_tls=tls)
-
-    def backup(self):
-        self._backup_config.backup()
-
-    def restore(self, timestamp, sr):
-        sr = self._session.xenapi.SR.get_by_uuid(sr)
-        self._backup_config.restore(timestamp, sr)
-
 if __name__ == '__main__':
-    import fire
-    fire.Fire(Cli)
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+    parser = argparse.ArgumentParser(description="Back up and restore VMs using XenServer's Changed Block Tracking API")
+    parser.add_argument('master', help="Address of the pool master")
+    parser.add_argument('pwd', help="Password of the user")
+    parser.add_argument('--uname', default='root', help="Login name of the user")
+    parser.add_argument('--tls', default=True, help="Whether to use encryption for all traffic")
+
+    subparsers = parser.add_subparsers(dest='command_name')
+
+    backup_parser = subparsers.add_parser('backup')
+    backup_parser.add_argument('vm', help="The UUID of the VM on the server to back up")
+
+    backup_parser = subparsers.add_parser('restore')
+    backup_parser.add_argument('vm', help="The UUID of the locally backed up VM, which is to be restored")
+    backup_parser.add_argument('ts', help="The backup timestamp specifying which local backup of the VM to restore")
+    backup_parser.add_argument('sr', help="The SR on which the VDIs of the restored VM will be stored")
+    backup_parser.add_argument('host', help="The host through which the network traffic should travel while restoring the VM")
+
+    args = parser.parse_args()
+
+    session = XenAPI.Session(("https://" if args.tls else "http://") + args.master)
+    session.xenapi.login_with_password(
+        args.uname, args.pwd, "1.0", PROGRAM_NAME)
+    try:
+        backup_dir = Path.home() / ".cbt_backups"
+        config = BackupConfig(
+            session=session,
+            backup_dir=backup_dir,
+            use_tls=args.tls)
+        if args.command_name == 'backup':
+            print(config.backup(vm_uuid=args.vm))
+        elif args.command_name == 'restore':
+            print(config.restore(vm_uuid=args.vm, timestamp=args.ts, sr=args.sr, host=args.host))
+    finally:
+        session.xenapi.logout()

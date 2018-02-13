@@ -44,7 +44,8 @@ class VdiDownloader(object):
         OVERWRITE = 'r+b'
         APPEND = 'ab'
 
-    def _download_nbd_extents(self, nbd_client, extents, out_file, output_mode):
+    def _download_nbd_extents(
+            self, nbd_client, extents, out_file, output_mode):
         """
         Write the given extents to the output file.
         """
@@ -54,7 +55,8 @@ class VdiDownloader(object):
                 end = offset + length
                 for current_offset in range(offset, end, self._block_size):
                     block_length = min(self._block_size, end - current_offset)
-                    data = nbd_client.read(offset=current_offset, length=block_length)
+                    data = nbd_client.read(
+                            offset=current_offset, length=block_length)
                     out.seek(current_offset)
                     out.write(data)
 
@@ -108,7 +110,7 @@ class VdiDownloader(object):
 
         bitmap = self._session.xenapi.VDI.list_changed_blocks(vdi_from, vdi)
 
-        nbd_info = _get_nbd_info(self._session, vdi)
+        nbd_info = _get_nbd_info(session, vdi)
 
         _copy(str(vdi_from_backup), str(output_file))
 
