@@ -110,7 +110,7 @@ class VdiDownloader(object):
 
         bitmap = self._session.xenapi.VDI.list_changed_blocks(vdi_from, vdi)
 
-        nbd_info = _get_nbd_info(session, vdi)
+        nbd_info = _get_nbd_info(self._session, vdi)
 
         _copy(str(vdi_from_backup), str(output_file))
 

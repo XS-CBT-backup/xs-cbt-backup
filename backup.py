@@ -33,8 +33,9 @@ def vdi_supports_cbt(session, vdi):
     # For now, we cannot use the VDI's allowed_operations, because the CBT
     # opeartions aren't yet included
     sr = session.xenapi.VDI.get_SR(vdi)
-    required_operations = ['vdi_enable_cbt', 'vdi_list_changed_blocks', 'vdi_data_destroy']
-    return required_operations in session.xenapi.SR.get_allowed_operations(sr)
+    required_operations = set(['vdi_enable_cbt', 'vdi_list_changed_blocks', 'vdi_data_destroy'])
+    allowed_operations = set(session.xenapi.SR.get_allowed_operations(sr))
+    return required_operations.issubset(allowed_operations)
 
 
 def enable_cbt(session, vm_ref):
@@ -44,6 +45,9 @@ def enable_cbt(session, vm_ref):
     for vdi in get_vdis_of_vm(session=session, vm_ref=vm_ref):
         if vdi_supports_cbt(session=session, vdi=vdi):
             session.xenapi.VDI.enable_cbt(vdi)
+        else:
+            print('VDI {} does not support Changed Bloct Tracking'.format(
+                session.xenapi.VDI.get_uuid(vdi)))
 
 
 def restore_vdi(session, host, sr, backup):
@@ -89,10 +93,9 @@ def _wait_for_task_to_finish(session, task):
 
 def _wait_for_task_result(session, task):
     _wait_for_task_to_finish(session=session, task=task)
-    print('task: {}'.format(session.xenapi.task.get_record(task)))
-    result = session.xenapi.task.get_result(task)
-    print('Got task result: {}'.format(result))
-    return ElementTree.fromstring(result).text
+    task_record = session.xenapi.task.get_record(task)
+    assert task_record['status'] == 'success'
+    return ElementTree.fromstring(task_record['result']).text
 
 
 def _save_vm_metadata(session, use_tls, vm_uuid, backup_dir):
@@ -135,8 +138,9 @@ class BackupConfig(object):
         vm_dir.mkdir(exist_ok=True)
         return vm_dir
 
-    def _get_local_backup_of_snapshot(self, snapshot_uuid):
-        return next(self._backup_dir.glob('**/{}'.format(snapshot_uuid)), None)
+    def _get_local_backup_of_snapshot(self, snapshot):
+        uuid = self._session.xenapi.VDI.get_uuid(snapshot)
+        return next(self._backup_dir.glob('**/{}'.format(uuid)), None)
 
     def _snapshot_timestamp(self, snapshot):
         return self._session.xenapi.VDI.get_snapshot_time(snapshot)
@@ -146,7 +150,6 @@ class BackupConfig(object):
         # - the snapshots field of a snapshot VDI is empty.
         vdi = self._session.xenapi.VDI.get_snapshot_of(snapshot)
         snapshots = self._session.xenapi.VDI.get_snapshots(vdi)
-        print("Found snapshots of VDI: {}".format(snapshots))
         snapshots_from_newest_to_oldest = sorted(
             snapshots, key=self._snapshot_timestamp, reverse=True)
         backups_from_newest_to_oldest = (
@@ -165,8 +168,6 @@ class BackupConfig(object):
         backup_checksum = md5sum.md5sum(backup)
         print("Waiting for server-side checksum to finish...")
         checksum = _wait_for_task_result(session=self._session, task=task)
-        print("Comparing checksums: local {} server {}".format(
-            backup_checksum, checksum))
         assert backup_checksum == checksum
 
     def _vdi_backup(self, backup_dir, vdi):
@@ -186,11 +187,12 @@ class BackupConfig(object):
         if cbt_enabled:
             latest_backup = self._get_latest_backup_of_vdi(vdi)
         if latest_backup is None:
+            print("Performing a full backup")
             self._downloader.full_vdi_backup(
                 vdi=vdi,
                 output_file=output_file)
         else:
-            print("Found latest backup: {}".format(latest_backup))
+            print("Performing an incremental backup")
             changed_blocks = self._session.xenapi.VDI.list_changed_blocks(
                     latest_backup[0], vdi)
             stats = CbtBitmap(changed_blocks).get_statistics()
@@ -214,33 +216,29 @@ class BackupConfig(object):
         # VBDs, so as long as the VDI is linked to the VM snapshot by a VBD, we
         # cannot data_destroy it.
         self._session.xenapi.VM.destroy(vm_snapshot)
-        print('Cleaning up VDIs: {}'.format(vdis))
         for vdi in vdis:
             if self._session.xenapi.VDI.get_cbt_enabled(vdi):
-                print('VDI.data_destroy')
                 self._session.xenapi.VDI.data_destroy(vdi)
             else:
-                print('VDI.destroy')
                 self._session.xenapi.VDI.destroy(vdi)
 
     def _snapshot_vm(self, vm):
         new_name = self._session.xenapi.VM.get_name_label(
             vm) + "_tmp_cbt_backup_snapshot"
-        print("Snapshotting VM {} as snapshot '{}".format(vm, new_name))
+        print("Snapshotting VM")
         return self._session.xenapi.VM.snapshot(vm, new_name)
 
     def backup(self, vm_uuid):
         """
         Takes a backup of the VM.
         """
-        print("Backing up VM {}".format(vm_uuid))
         vm = self._session.xenapi.VM.get_by_uuid(vm_uuid)
 
         vm_dir = self._get_vm_dir(vm_uuid)
         timestamp = _get_timestamp()
         backup_dir = vm_dir / timestamp
         backup_dir.mkdir()
-        print("Created new backup directory {}".format(backup_dir))
+        print("Backup up VM into new backup directory {}".format(backup_dir))
 
         enable_cbt(self._session, vm)
 
