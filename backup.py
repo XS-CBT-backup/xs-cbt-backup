@@ -95,15 +95,16 @@ def _wait_for_task_result(session, task):
     return ElementTree.fromstring(result).text
 
 
-def _save_vm_metadata(session, vm_uuid, backup_dir):
+def _save_vm_metadata(session, use_tls, vm_uuid, backup_dir):
     session_ref = session._session
     host = session.xenapi.session.get_this_host(session_ref)
     address = session.xenapi.host.get_address(host)
-    url = ('https://{}/export_metadata'
+    protocol = 'https' if use_tls else 'http'
+    url = ('{}://{}/export_metadata'
            '?session_id={}'
            '&uuid={}'
            '&export_snapshots=false').format(
-            address, session_ref, vm_uuid)
+            protocol, address, session_ref, vm_uuid)
 
     s = verify.session_for_host(session, host)
 
@@ -120,6 +121,7 @@ def _save_vm_metadata(session, vm_uuid, backup_dir):
 class BackupConfig(object):
     def __init__(self, session, backup_dir, use_tls):
         self._session = session
+        self._use_tls = use_tls
 
         self._backup_dir = backup_dir
 
@@ -245,7 +247,7 @@ class BackupConfig(object):
         snapshot = self._snapshot_vm(vm=vm)
         snapshot_uuid = self._session.xenapi.VM.get_uuid(snapshot)
 
-        _save_vm_metadata(session=session, vm_uuid=snapshot_uuid, backup_dir=backup_dir)
+        _save_vm_metadata(session=session, use_tls=self._use_tls, vm_uuid=snapshot_uuid, backup_dir=backup_dir)
 
         self._vm_backup(vm_snapshot=snapshot, backup_dir=backup_dir)
 
@@ -291,7 +293,9 @@ if __name__ == '__main__':
     parser.add_argument('master', help="Address of the pool master")
     parser.add_argument('pwd', help="Password of the user")
     parser.add_argument('--uname', default='root', help="Login name of the user")
-    parser.add_argument('--tls', default=True, help="Whether to use encryption for all traffic")
+    parser.add_argument('--tls', dest='tls', action='store_true')
+    parser.add_argument('--no-tls', dest='tls', action='store_false')
+    parser.set_defaults(tls=True)
 
     subparsers = parser.add_subparsers(dest='command_name')
 
