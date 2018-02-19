@@ -320,6 +320,8 @@ if __name__ == '__main__':
         if args.command_name == 'backup':
             print(config.backup(vm_uuid=args.vm))
         elif args.command_name == 'restore':
-            print(config.restore(vm_uuid=args.vm, timestamp=args.ts, sr=args.sr, host=args.host))
+            sr = session.xenapi.SR.get_by_uuid(args.sr)
+            host = session.xenapi.host.get_by_uuid(args.host)
+            print(config.restore(vm_uuid=args.vm, timestamp=args.ts, sr=sr, host=host))
     finally:
         session.xenapi.logout()
