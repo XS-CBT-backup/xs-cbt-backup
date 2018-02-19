@@ -261,6 +261,7 @@ class BackupConfig(object):
                 continue
             restored = restore_vdi(
                     session=self._session, use_tls=self._use_tls, host=host, sr=sr, backup=backup)
+            self._compare_checksums(vdi=restored, backup=backup)
             vdi_uuid = backup.name
             restored_uuid = self._session.xenapi.VDI.get_uuid(restored)
             vdi_map[vdi_uuid] = restored_uuid
