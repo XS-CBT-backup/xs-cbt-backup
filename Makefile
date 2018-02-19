@@ -1,4 +1,4 @@
 .PHONY: test
 
 XenAPI.py:
-	wget https://github.com/xapi-project/xen-api/blob/master/scripts/examples/python/XenAPI.py
+	wget https://raw.githubusercontent.com/xapi-project/xen-api/master/scripts/examples/python/XenAPI.py
