@@ -96,7 +96,12 @@ def _wait_for_task_result(session, task):
     _wait_for_task_to_finish(session=session, task=task)
     task_record = session.xenapi.task.get_record(task)
     assert task_record['status'] == 'success'
-    return ElementTree.fromstring(task_record['result']).text
+    element = ElementTree.fromstring(task_record['result'])
+    value = next((child
+                  for child
+                  in element.iter('value')
+                  if child.text is not None))
+    return value.text
 
 
 def _save_vm_metadata(session, use_tls, vm_uuid, backup_dir):
