@@ -54,7 +54,7 @@ def restore_vdi(session, host, sr, backup):
     """
     Returns a new VDI with the data taken from the backup.
     """
-    size = os.path.getsize(backup)
+    size = os.path.getsize(str(backup))
     print('Creating VDI of size {}'.format(size))
     vdi_record = {
         'SR': sr,
