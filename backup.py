@@ -50,7 +50,7 @@ def enable_cbt(session, vm_ref):
                 session.xenapi.VDI.get_uuid(vdi)))
 
 
-def restore_vdi(session, host, sr, backup):
+def restore_vdi(session, use_tls, host, sr, backup):
     """
     Returns a new VDI with the data taken from the backup.
     """
@@ -71,8 +71,9 @@ def restore_vdi(session, host, sr, backup):
     s = verify.session_for_host(session, host)
 
     address = session.xenapi.host.get_address(host)
-    url = 'https://{}/import_raw_vdi?session_id={}&vdi={}&format=raw'.format(
-            address, session._session, vdi)
+    protocol = 'https' if use_tls else 'http'
+    url = '{}://{}/import_raw_vdi?session_id={}&vdi={}&format=raw'.format(
+            protocol, address, session._session, vdi)
 
     with Path(backup).open('rb') as f:
         s.put(url, data=f).raise_for_status()
@@ -259,7 +260,7 @@ class BackupConfig(object):
             if backup == vm_metadata:
                 continue
             restored = restore_vdi(
-                    session=self._session, host=host, sr=sr, backup=backup)
+                    session=self._session, use_tls=self._use_tls, host=host, sr=sr, backup=backup)
             vdi_uuid = backup.name
             restored_uuid = self._session.xenapi.VDI.get_uuid(restored)
             vdi_map[vdi_uuid] = restored_uuid
