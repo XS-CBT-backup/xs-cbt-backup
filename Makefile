@@ -1,4 +1,4 @@
 .PHONY: test
 
-test:
-	python3 -m doctest -v cbt_bitmap.py
+XenAPI.py:
+	wget https://github.com/xapi-project/xen-api/blob/master/scripts/examples/python/XenAPI.py
