@@ -246,7 +246,7 @@ class BackupConfig(object):
         snapshot = self._snapshot_vm(vm=vm)
         snapshot_uuid = self._session.xenapi.VM.get_uuid(snapshot)
 
-        _save_vm_metadata(session=session, use_tls=self._use_tls, vm_uuid=snapshot_uuid, backup_dir=backup_dir)
+        _save_vm_metadata(session=session, use_tls=self._use_tls, vm_uuid=vm_uuid, backup_dir=backup_dir)
 
         self._vm_backup(vm_snapshot=snapshot, backup_dir=backup_dir)
 
