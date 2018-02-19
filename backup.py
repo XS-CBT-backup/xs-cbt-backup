@@ -273,8 +273,9 @@ class BackupConfig(object):
                 "restore VM", "restore backed up VM metadata")
         s = verify.session_for_host(self._session, host)
 
-        url = 'https://{}/import_metadata?session_id={}&task_id={}{}'.format(
-            address, self._session._session, task, vdi_map_params)
+        protocol = 'https' if self._use_tls else 'http'
+        url = '{}://{}/import_metadata?session_id={}&task_id={}{}'.format(
+            protocol, address, self._session._session, task, vdi_map_params)
         with vm_metadata.open('rb') as f:
             s.put(url, data=f).raise_for_status()
 
