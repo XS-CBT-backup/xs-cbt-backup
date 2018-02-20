@@ -296,8 +296,8 @@ if __name__ == '__main__':
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
     parser = argparse.ArgumentParser(description="Back up and restore VMs using XenServer's Changed Block Tracking API")
-    parser.add_argument('master', help="Address of the pool master")
-    parser.add_argument('pwd', help="Password of the user")
+    parser.add_argument('--master', required=True, help="Address of the pool master")
+    parser.add_argument('--pwd', required=True, help="Password of the user")
     parser.add_argument('--uname', default='root', help="Login name of the user")
     parser.add_argument('--tls', dest='tls', action='store_true')
     parser.add_argument('--no-tls', dest='tls', action='store_false')
@@ -306,13 +306,13 @@ if __name__ == '__main__':
     subparsers = parser.add_subparsers(dest='command_name')
 
     backup_parser = subparsers.add_parser('backup')
-    backup_parser.add_argument('vm', help="The UUID of the VM on the server to back up")
+    backup_parser.add_argument('--vm', required=True, help="The UUID of the VM on the server to back up")
 
     backup_parser = subparsers.add_parser('restore')
-    backup_parser.add_argument('vm', help="The UUID of the locally backed up VM, which is to be restored")
-    backup_parser.add_argument('ts', help="The backup timestamp specifying which local backup of the VM to restore")
-    backup_parser.add_argument('sr', help="The SR on which the VDIs of the restored VM will be stored")
-    backup_parser.add_argument('host', help="The host through which the network traffic should travel while restoring the VM")
+    backup_parser.add_argument('--vm', required=True, help="The UUID of the locally backed up VM, which is to be restored")
+    backup_parser.add_argument('--ts', required=True, help="The backup timestamp specifying which local backup of the VM to restore")
+    backup_parser.add_argument('--sr', required=True, help="The SR on which the VDIs of the restored VM will be stored")
+    backup_parser.add_argument('--host', required=True, help="The host through which the network traffic should travel while restoring the VM")
 
     args = parser.parse_args()
 
