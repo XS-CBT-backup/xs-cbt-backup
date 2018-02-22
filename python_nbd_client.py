@@ -46,6 +46,7 @@ NBD_FLAG_C_FIXED_NEWSTYLE = (1 << 0)
 NBD_OPT_EXPORT_NAME = 1
 NBD_OPT_ABORT = 2
 NBD_OPT_STARTTLS = 5
+NBD_OPT_INFO = 6
 NBD_OPT_STRUCTURED_REPLY = 8
 NBD_OPT_LIST_META_CONTEXT = 9
 NBD_OPT_SET_META_CONTEXT = 10
@@ -53,6 +54,7 @@ NBD_OPT_SET_META_CONTEXT = 10
 # Option reply types
 NBD_REP_ERROR_BIT = (1 << 31)
 NBD_REP_ACK = 1
+NBD_REP_INFO = 3
 NBD_REP_META_CONTEXT = 4
 
 OPTION_REPLY_MAGIC = 0x3e889045565a9
@@ -72,6 +74,12 @@ NBD_REPLY_TYPE_ERROR_OFFSET = (1 << 15 + 2)
 
 # Structured reply flags
 NBD_REPLY_FLAG_DONE = (1 << 0)
+
+# NBD_INFO information types
+NBD_INFO_EXPORT = 0
+NBD_INFO_NAME = 1
+NBD_INFO_DESCRIPTION = 2
+NBD_INFO_BLOCK_SIZE = 3
 
 
 class NBDEOFError(EOFError):
@@ -314,8 +322,7 @@ class PythonNbdClient(object):
         self._structured_reply = True
 
     def _send_meta_context_option(self, option, export_name, queries):
-        data = bytes()
-        data += struct.pack('>L', len(export_name))
+        data = struct.pack('>L', len(export_name))
         data += export_name.encode('utf-8')
         data += struct.pack('>L', len(queries))
         for query in queries:
@@ -348,6 +355,34 @@ class PythonNbdClient(object):
             option=NBD_OPT_LIST_META_CONTEXT,
             export_name=export_name,
             queries=queries)
+
+    def get_info(self, export_name, info_requests):
+        """Queries information from the server"""
+        data = struct.pack('>L', len(export_name))
+        data += export_name.encode('utf-8')
+        data += struct.pack('>H', len(info_requests))
+        for info in info_requests:
+            data += struct.pack('>H', info)
+        self._send_option(option=NBD_OPT_INFO, data=data)
+        infos = []
+        while True:
+            (reply_type, data) = self._parse_option_reply()
+            if reply_type == NBD_REP_ACK:
+                return infos
+            info = {}
+            view = memoryview(data)
+            info['type'] = struct.unpack(">H", view[:2])[0]
+            view = view[2:]
+            if info['type'] == NBD_INFO_EXPORT:
+                (export_size, transmission_flags) = struct.unpack(">QH", view)
+                info['export_size'] = export_size
+                info['transmission_flags'] = transmission_flags
+            elif info['type'] == NBD_INFO_BLOCK_SIZE:
+                (minimum, preferred, maximum) = struct.unpack(">LLL", view)
+                info['minimum_block_size'] = minimum
+                info['preferred_block_size'] = preferred
+                info['maximum_block_size'] = maximum
+            infos += [info]
 
     def _fixed_new_style_handshake(self, cert, subject, use_tls):
         nbd_magic = self._recvall(len("NBDMAGIC"))
