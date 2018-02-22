@@ -390,8 +390,8 @@ class PythonNbdClient(object):
         nbd_magic = self._recvall(len("IHAVEOPT"))
         _assert_protocol(nbd_magic == b'IHAVEOPT')
         buf = self._recvall(2)
-        self._flags = struct.unpack(">H", buf)[0]
-        _assert_protocol(self._flags & NBD_FLAG_HAS_FLAGS != 0)
+        handshake_flags = struct.unpack(">H", buf)[0]
+        _assert_protocol(handshake_flags & NBD_FLAG_HAS_FLAGS != 0)
         client_flags = NBD_FLAG_C_FIXED_NEWSTYLE
         client_flags = struct.pack('>L', client_flags)
         self._s.sendall(client_flags)
@@ -410,13 +410,12 @@ class PythonNbdClient(object):
         # request export
         self._send_option(NBD_OPT_EXPORT_NAME, str.encode(exportname))
 
-        # non-fixed newstyle negotiation: we get this if the server is willing
+        # non-fixed newstyle negotiation: we get these if the server is willing
         # to allow the export
-        buf = self._recvall(8)
-        self._size = struct.unpack(">Q", buf)[0]
-        # ignore the transmission flags (& zeroes)
-        transmission_flags = self._recvall(2)
-        logger.debug("NBD got transmission flags: %s", transmission_flags)
+        buf = self._recvall(10)
+        (self._size, self._transmission_flags) = struct.unpack(">QH", buf)
+        logger.debug("NBD got size=%d transmission flags=%d", self._size, self._transmission_flags)
+        # ignore the zeroes
         zeroes = self._recvall(124)
         logger.debug("NBD got zeroes: %s", zeroes)
         self._transmission_phase = True
@@ -428,7 +427,7 @@ class PythonNbdClient(object):
         nbd_magic = self._recvall(len("NBDMAGIC"))
         _assert_protocol(nbd_magic == b'NBDMAGIC')
         buf = self._recvall(8 + 8 + 4)
-        (magic, self._size, self._flags) = struct.unpack(">QQL", buf)
+        (magic, self._size, self._transmission_flags) = struct.unpack(">QQL", buf)
         _assert_protocol(magic == 0x00420281861253)
         # ignore trailing zeroes
         self._recvall(124)
@@ -544,7 +543,7 @@ class PythonNbdClient(object):
         return data
 
     def _need_flush(self):
-        return self._flags & NBD_FLAG_SEND_FLUSH != 0
+        return self._transmission_flags & NBD_FLAG_SEND_FLUSH != 0
 
     def flush(self):
         """
