@@ -552,10 +552,10 @@ class PythonNbdClient(object):
         (the writes for which the server has already sent a reply to the
         client) to be written to permanent storage.
         """
-        logger.debug("NBD_CMD_FLUSH")
         if self._need_flush() is False:
             self._flushed = True
             return True
+        logger.debug("NBD_CMD_FLUSH")
         self._send_request_header(NBD_CMD_FLUSH, 0, 0)
         self._parse_simple_reply()
         self._flushed = True
