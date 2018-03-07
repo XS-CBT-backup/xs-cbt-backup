@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 
+# Requests should be configured to use the system ca-certificates bundle:
+# * https://stackoverflow.com/questions/42982143
+# * http://docs.python-requests.org/en/master/user/advanced/#ssl-cert-verification
+# For example, run
+# "export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt" on Ubuntu.
+
 from pathlib import Path
 import argparse
 import datetime
@@ -130,11 +136,6 @@ def _save_vm_metadata(session, use_tls, vm_uuid, backup_dir):
 
     s = verify.session_for_host(session, host)
 
-    # Requests should be configured to use the system ca-certificates bundle:
-    # * https://stackoverflow.com/questions/42982143
-    # * http://docs.python-requests.org/en/master/user/advanced/#ssl-cert-verification
-    # For example, run
-    # "export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt" on Ubuntu.
     r = s.get(url)
     with (backup_dir / "VM_metadata").open('wb') as out:
         out.write(r.content)
