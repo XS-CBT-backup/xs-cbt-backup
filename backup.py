@@ -5,6 +5,7 @@ import argparse
 import datetime
 import logging
 import os
+import shutil
 import time
 import xml.etree.ElementTree as ElementTree
 
@@ -50,6 +51,16 @@ def enable_cbt(session, vm_ref):
                 session.xenapi.VDI.get_uuid(vdi)))
 
 
+def _compare_checksums(session, vdi, backup):
+    print("Starting to checksum VDI on server side")
+    task = session.xenapi.Async.VDI.checksum(vdi)
+    print("Checksumming local backup")
+    backup_checksum = md5sum.md5sum(backup)
+    print("Waiting for server-side checksum to finish...")
+    checksum = _wait_for_task_result(session=session, task=task)
+    assert backup_checksum == checksum
+
+
 def restore_vdi(session, use_tls, host, sr, backup):
     """
     Returns a new VDI with the data taken from the backup.
@@ -66,19 +77,21 @@ def restore_vdi(session, use_tls, host, sr, backup):
         'other_config': {},
         'name_label': 'Restored from CBT backup'
     }
-    vdi = session.xenapi.VDI.create(vdi_record)
+    restored_vdi = session.xenapi.VDI.create(vdi_record)
 
     s = verify.session_for_host(session, host)
 
     address = session.xenapi.host.get_address(host)
     protocol = 'https' if use_tls else 'http'
     url = '{}://{}/import_raw_vdi?session_id={}&vdi={}&format=raw'.format(
-            protocol, address, session._session, vdi)
+            protocol, address, session._session, restored_vdi)
 
     with Path(backup).open('rb') as f:
         s.put(url, data=f).raise_for_status()
 
-    return vdi
+    _compare_checksums(session=session, vdi=restored_vdi, backup=backup)
+
+    return restored_vdi
 
 
 def _get_timestamp():
@@ -146,7 +159,8 @@ class BackupConfig(object):
 
     def _get_local_backup_of_snapshot(self, snapshot):
         uuid = self._session.xenapi.VDI.get_uuid(snapshot)
-        return next(self._backup_dir.glob('**/{}'.format(uuid)), None)
+        glob = '**/{}/data'.format(uuid)
+        return next(self._backup_dir.glob(glob), None)
 
     def _snapshot_timestamp(self, snapshot):
         return self._session.xenapi.VDI.get_snapshot_time(snapshot)
@@ -167,15 +181,6 @@ class BackupConfig(object):
             if b is not None)
         return next(iter(backups_from_newest_to_oldest), None)
 
-    def _compare_checksums(self, vdi, backup):
-        print("Starting to checksum VDI on server side")
-        task = self._session.xenapi.Async.VDI.checksum(vdi)
-        print("Checksumming local backup")
-        backup_checksum = md5sum.md5sum(backup)
-        print("Waiting for server-side checksum to finish...")
-        checksum = _wait_for_task_result(session=self._session, task=task)
-        assert backup_checksum == checksum
-
     def _vdi_backup(self, backup_dir, vdi):
         """
         Backs up a VDI of the newly-created VM snapshot and then cleans
@@ -186,12 +191,24 @@ class BackupConfig(object):
         """
         vdi_uuid = self._session.xenapi.VDI.get_uuid(vdi)
         print("Backing up VDI {} with UUID {}".format(vdi, vdi_uuid))
-        output_file = backup_dir / vdi_uuid
-        cbt_enabled = self._session.xenapi.VDI.get_cbt_enabled(vdi)
-
         latest_backup = None
-        if cbt_enabled:
+        if self._session.xenapi.VDI.get_cbt_enabled(vdi):
             latest_backup = self._get_latest_backup_of_vdi(vdi)
+
+        vdi_dir = backup_dir / "vdis" / vdi_uuid
+        vdi_dir.mkdir(parents=True)
+
+        # First backup the UUID of the snapshotted VDI, because we save and
+        # restore the metadata of the original VM, not the snapshot VM, and
+        # therefore we have to specify the UUIDs of the snapshotted VM's VDIs
+        # in the VDI mapping when we restore the VM from its metadata.
+        with (vdi_dir / "original_uuid").open('w') as out:
+            original_vdi = self._session.xenapi.VDI.get_snapshot_of(vdi)
+            original_uuid = self._session.xenapi.VDI.get_uuid(original_vdi)
+            out.write(original_uuid)
+
+        # Then backup the data of the snapshot VDI
+        output_file = vdi_dir / "data"
         if latest_backup is None:
             print("Performing a full backup")
             self._downloader.full_vdi_backup(
@@ -207,7 +224,7 @@ class BackupConfig(object):
                 vdi=vdi,
                 latest_backup=latest_backup,
                 output_file=output_file)
-        self._compare_checksums(vdi=vdi, backup=output_file)
+        _compare_checksums(session=self._session, vdi=vdi, backup=output_file)
 
     def _vm_backup(self, vm_snapshot, backup_dir):
         vdis = list(get_vdis_of_vm(self._session, vm_snapshot))
@@ -245,31 +262,33 @@ class BackupConfig(object):
         backup_dir = vm_dir / timestamp
         backup_dir.mkdir()
         print("Backup up VM into new backup directory {}".format(backup_dir))
+        try:
 
-        enable_cbt(self._session, vm)
+            enable_cbt(self._session, vm)
 
-        snapshot = self._snapshot_vm(vm=vm)
-        snapshot_uuid = self._session.xenapi.VM.get_uuid(snapshot)
+            snapshot = self._snapshot_vm(vm=vm)
+            snapshot_uuid = self._session.xenapi.VM.get_uuid(snapshot)
 
-        _save_vm_metadata(session=session, use_tls=self._use_tls, vm_uuid=vm_uuid, backup_dir=backup_dir)
+            _save_vm_metadata(session=session, use_tls=self._use_tls, vm_uuid=vm_uuid, backup_dir=backup_dir)
 
-        self._vm_backup(vm_snapshot=snapshot, backup_dir=backup_dir)
+            self._vm_backup(vm_snapshot=snapshot, backup_dir=backup_dir)
 
-        return timestamp
+            return timestamp
+        except:
+            shutil.rmtree(backup_dir)
+            raise
 
     def restore(self, vm_uuid, timestamp, sr, host):
         backup_dir = self._get_vm_dir(vm_uuid) / timestamp
         vdi_map = {}
         vm_metadata = backup_dir / "VM_metadata"
-        for backup in backup_dir.iterdir():
-            if backup == vm_metadata:
-                continue
+        for backup in (backup_dir / "vdis").iterdir():
             restored = restore_vdi(
-                    session=self._session, use_tls=self._use_tls, host=host, sr=sr, backup=backup)
-            self._compare_checksums(vdi=restored, backup=backup)
-            vdi_uuid = backup.name
+                    session=self._session, use_tls=self._use_tls, host=host, sr=sr, backup=(backup/'data'))
+            with (backup / "original_uuid").open('r') as infile:
+                original_uuid = infile.readline().strip()
             restored_uuid = self._session.xenapi.VDI.get_uuid(restored)
-            vdi_map[vdi_uuid] = restored_uuid
+            vdi_map[original_uuid] = restored_uuid
         vdi_map_params = ""
         for original_uuid, restored_uuid in vdi_map.items():
             vdi_map_params += "&vdi:{}={}".format(original_uuid, restored_uuid)
