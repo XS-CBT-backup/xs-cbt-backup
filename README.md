@@ -11,6 +11,8 @@ The CLI program has built-in help, which can be displayed by passing the `--help
 All backup data is stored inside the `~/.cbt_backups` directory. Inside this, each backed up VM has its own directory, which contains one subdirectory for each backup of that VM.
 A specific backup of a VM, all backups of a VM, or all backups created by the program can be removed by deleting the corresponding folder.
 
+The backup program tries to use the `--reflink` option of `cp` whenever possible, therefore the speed of incremental backups can be improved by placing the main backup directory on a copy-on-write filesystem that supports reflinks.
+
 ## Possible Improvements:
 
 * Download the initial disk as VHD and create a sparse file using `truncate`
