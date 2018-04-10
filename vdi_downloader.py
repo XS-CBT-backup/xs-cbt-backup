@@ -28,12 +28,26 @@ class VdiDownloader(object):
     Provides a way of backing up the data of a VDI incrementally to a file or
     downloading it completely.
     """
+    # This class uses NBD both for full backup and incremental backup.
+    # For secure NBD using TLS, no manual configuration is necessary, the
+    # methods will use the configuration given by xapi. This means that the
+    # communication with xapi must be secure, the server URL must use HTTPS,
+    # Therefore this requires manual configuration; the CA certificate of the
+    # server must be known by Python, see
+    # https://github.com/xapi-project/xen-api/issues/2100#issuecomment-361930724
+
     def __init__(self, session, block_size, use_tls=True):
         self._session = session
         self._block_size = block_size
         self._use_tls = use_tls
 
     def _nbd_client(self, vdi_nbd_server_info):
+        """
+        Connect using the given NBD server details and return the NBD client.
+        No manual configuration is needed for TLS, the client will
+        automatically use the certificate and server hostname provided by the
+        given vdi_nbd_server_info.
+        """
         return PythonNbdClient(**vdi_nbd_server_info, use_tls=self._use_tls)
 
     @unique
