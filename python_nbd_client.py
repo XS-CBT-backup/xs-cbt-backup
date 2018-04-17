@@ -67,7 +67,7 @@ NBD_STRUCTURED_REPLY_MAGIC = 0x668e33ef
 NBD_REPLY_TYPE_NONE = 0
 NBD_REPLY_OFFSET_DATA = 1
 NBD_REPLY_TYPE_OFFSET_HOLE = 2
-NBD_REPLY_TYPE_BLOCK_STATUS = 3
+NBD_REPLY_TYPE_BLOCK_STATUS = 5
 NBD_REPLY_TYPE_ERROR_BIT = (1 << 15)
 NBD_REPLY_TYPE_ERROR = (1 << 15 + 1)
 NBD_REPLY_TYPE_ERROR_OFFSET = (1 << 15 + 2)
@@ -133,6 +133,20 @@ class NBDUnexpectedOptionResponseError(Exception):
             .format(received, expected))
         self.expected = expected
         self.received = received
+
+
+class NBDUnexpectedStructuredReplyType(Exception):
+    """
+    The NBD server sent a structured reply chunk with an unexpected type that
+    is not known by this client.
+
+    :attribute type: The type of the structured chunk message.
+    """
+    def __init__(self, reply_type):
+        super(NBDUnexpectedStructuredReplyType, self).__init__(
+            "Received a structured reply chunk message "
+            "with an unexpected type: {}".format(reply_type))
+        self.reply_type = reply_type
 
 
 class NBDUnexpectedReplyHandleError(Exception):
@@ -516,8 +530,10 @@ class PythonNbdClient(object):
         fields = {'flags': flags, 'reply_type': reply_type, 'data_length': data_length}
         if reply_type == NBD_REPLY_TYPE_BLOCK_STATUS:
             self._handle_block_status_reply(fields)
-        if reply_type & NBD_REPLY_TYPE_ERROR_BIT != 0:
+        elif reply_type & NBD_REPLY_TYPE_ERROR_BIT != 0:
             self._handle_structured_reply_error(fields)
+        else:
+            raise NBDUnexpectedStructuredReplyType(reply_type)
         return fields
 
     def _process_structured_reply_chunks(self, read_first_magic=True):
