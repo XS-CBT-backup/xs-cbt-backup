@@ -552,16 +552,13 @@ class PythonNbdClient(object):
             raise NBDUnexpectedStructuredReplyType(reply_type)
         return fields
 
-    def _process_structured_reply_chunks(self, read_first_magic=True):
+    def _parse_structured_reply_chunks(self, read_first_magic=True):
         reply = self._parse_structured_reply_chunk(read_first_magic)
         while True:
             yield reply
             if reply['flags'] & NBD_REPLY_FLAG_DONE == NBD_REPLY_FLAG_DONE:
                 return
             reply = self._parse_structured_reply_chunk()
-
-    def _parse_structured_reply_chunks(self, read_first_magic=True):
-        return list(self._process_structured_reply_chunks(read_first_magic))
 
     def write(self, data, offset):
         """
@@ -581,6 +578,10 @@ class PythonNbdClient(object):
         """
         Returns length number of bytes read from the export, starting at
         the given offset.
+        If structured replies have been negotiated, it returns a generator
+        containing the reply chunks. The caller must consume this generator
+        before further NBD commands, since this client does not support
+        asynchronous request processing.
         """
         LOGGER.debug("NBD_CMD_READ")
         _check_alignment("offset", offset)
@@ -614,6 +615,9 @@ class PythonNbdClient(object):
         Query block status in the range defined by length and offset.
         The required meta contexts must have been negotiated using
         set_meta_contexts.
+        The caller must consume the returned generator before further NBD
+        commands, since this client does not support asynchronous request
+        processing.
         """
         LOGGER.debug("NBD_CMD_BLOCK_STATUS")
         self._send_request_header(NBD_CMD_BLOCK_STATUS, offset, length)
