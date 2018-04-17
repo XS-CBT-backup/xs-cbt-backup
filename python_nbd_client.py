@@ -519,7 +519,7 @@ class PythonNbdClient(object):
             raise NBDProtocolError
         data = self._recvall(remaining_length)
         view = memoryview(data)
-        fields['message'] = str(view[0:message_length], encoding='utf-8')
+        fields['message'] = view[0:message_length].tobytes().decode('utf-8')
         view = view[message_length:]
         if fields['reply_type'] == NBD_REPLY_TYPE_ERROR_OFFSET:
             (offset) = struct.unpack(">Q", view[:8])
