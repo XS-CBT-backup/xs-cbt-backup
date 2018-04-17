@@ -343,6 +343,8 @@ class PythonNbdClient(object):
         """
         Change the set of active metadata contexts. Only valid during the
         handshake phase.
+        Structured replies be negotiated first using
+        negotiate_structured_reply.
         """
         self._send_meta_context_option(
             option=NBD_OPT_SET_META_CONTEXT,
@@ -354,8 +356,10 @@ class PythonNbdClient(object):
         Return the metadata contexts available on the export matching one or
         more of the queries as (metadata context ID, metadata context name)
         pairs.
+        Structured replies be negotiated first using
+        negotiate_structured_reply.
         """
-        self._send_meta_context_option(
+        return self._send_meta_context_option(
             option=NBD_OPT_LIST_META_CONTEXT,
             export_name=export_name,
             queries=queries)
