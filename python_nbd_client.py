@@ -65,7 +65,7 @@ NBD_STRUCTURED_REPLY_MAGIC = 0x668e33ef
 
 # Structured reply types
 NBD_REPLY_TYPE_NONE = 0
-NBD_REPLY_OFFSET_DATA = 1
+NBD_REPLY_TYPE_OFFSET_DATA = 1
 NBD_REPLY_TYPE_OFFSET_HOLE = 2
 NBD_REPLY_TYPE_BLOCK_STATUS = 5
 NBD_REPLY_TYPE_ERROR_BIT = (1 << 15)
@@ -499,6 +499,16 @@ class PythonNbdClient(object):
             view = view[8:]
         fields['descriptors'] = descriptors
 
+    def _handle_data_reply(self, fields):
+        buf = self._recvall(8)
+        fields['offset'] = struct.unpack(">Q", buf)[0]
+        fields['data'] = self._recvall(fields['data_length'] - 8)
+
+    def _handle_hole_reply(self, fields):
+        _assert_protocol(fields['data_length'] == 12)
+        buf = self._recvall(12)
+        (fields['offset'], fields['hole_size']) = struct.unpack(">QL", buf)
+
     def _handle_structured_reply_error(self, fields):
         buf = self._recvall(4 + 2)
         (errno, message_length) = struct.unpack(">LH", buf)
@@ -530,6 +540,12 @@ class PythonNbdClient(object):
         fields = {'flags': flags, 'reply_type': reply_type, 'data_length': data_length}
         if reply_type == NBD_REPLY_TYPE_BLOCK_STATUS:
             self._handle_block_status_reply(fields)
+        elif reply_type == NBD_REPLY_TYPE_NONE:
+            _assert_protocol(data_length == 0)
+        elif reply_type == NBD_REPLY_TYPE_OFFSET_DATA:
+            self._handle_data_reply(fields)
+        elif reply_type == NBD_REPLY_TYPE_OFFSET_HOLE:
+            self._handle_hole_reply(fields)
         elif reply_type & NBD_REPLY_TYPE_ERROR_BIT != 0:
             self._handle_structured_reply_error(fields)
         else:
@@ -570,6 +586,8 @@ class PythonNbdClient(object):
         _check_alignment("offset", offset)
         _check_alignment("length", length)
         self._send_request_header(NBD_CMD_READ, offset, length)
+        if self._structured_reply:
+            return self._parse_structured_reply_chunks()
         data = self._parse_simple_reply(length)
         return data
 
