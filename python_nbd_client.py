@@ -288,7 +288,7 @@ class PythonNbdClient(object):
         (reply_type, data) = self._parse_option_reply()
         if reply_type == NBD_REP_ACK:
             return None
-        (context_id) = struct.unpack(">L", data[:4])
+        context_id = struct.unpack(">L", data[:4])[0]
         name = (data[4:]).decode('utf-8')
         return (context_id, name)
 
