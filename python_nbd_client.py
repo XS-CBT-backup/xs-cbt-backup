@@ -504,7 +504,8 @@ class PythonNbdClient(object):
     def _parse_structured_reply_chunk(self, read_magic=True):
         LOGGER.debug("NBD parsing structured reply chunk")
         if read_magic:
-            magic = self._recvall(4)
+            buf = self._recvall(4)
+            magic = struct.unpack(">L", buf)[0]
             LOGGER.debug("NBD structured reply magic='%x'", magic)
             _assert_protocol(magic == NBD_STRUCTURED_REPLY_MAGIC)
         reply = self._recvall(2 + 2 + 8 + 4)
@@ -519,13 +520,16 @@ class PythonNbdClient(object):
             self._handle_structured_reply_error(fields)
         return fields
 
-    def _parse_structured_reply_chunks(self, read_first_magic=True):
+    def _process_structured_reply_chunks(self, read_first_magic=True):
         reply = self._parse_structured_reply_chunk(read_first_magic)
         while True:
             yield reply
             if reply['flags'] & NBD_REPLY_FLAG_DONE == NBD_REPLY_FLAG_DONE:
                 return
             reply = self._parse_structured_reply_chunk()
+
+    def _parse_structured_reply_chunks(self, read_first_magic=True):
+        return list(self._process_structured_reply_chunks(read_first_magic))
 
     def write(self, data, offset):
         """
