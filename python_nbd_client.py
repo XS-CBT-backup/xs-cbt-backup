@@ -490,7 +490,7 @@ class PythonNbdClient(object):
     def _handle_block_status_reply(self, fields):
         data = self._recvall(fields['data_length'])
         view = memoryview(data)
-        fields['context_id'] = struct.unpack(">L", view[:4])
+        fields['context_id'] = struct.unpack(">L", view[:4])[0]
         view = view[4:]
         descriptors = []
         while view:
@@ -597,7 +597,7 @@ class PythonNbdClient(object):
         The required meta contexts must have been negotiated using
         set_meta_contexts.
         """
-        LOGGER.debug("NBD_CMD_READ")
+        LOGGER.debug("NBD_CMD_BLOCK_STATUS")
         self._send_request_header(NBD_CMD_BLOCK_STATUS, offset, length)
         return self._parse_structured_reply_chunks()
 
