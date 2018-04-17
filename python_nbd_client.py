@@ -289,7 +289,7 @@ class PythonNbdClient(object):
         if reply_type == NBD_REP_ACK:
             return None
         (context_id) = struct.unpack(">L", data[:4])
-        name = str(data[4:], encoding='utf-8')
+        name = (data[4:]).decode('utf-8')
         return (context_id, name)
 
     def _upgrade_socket_to_tls(self, cert, subject):
@@ -325,7 +325,7 @@ class PythonNbdClient(object):
         self._parse_option_reply_ack()
         self._structured_reply = True
 
-    def _send_meta_context_option(self, option, export_name, queries):
+    def _process_meta_context_option(self, option, export_name, queries):
         data = struct.pack('>L', len(export_name))
         data += export_name.encode('utf-8')
         data += struct.pack('>L', len(queries))
@@ -339,6 +339,9 @@ class PythonNbdClient(object):
                 break
             yield reply
 
+    def _send_meta_context_option(self, option, export_name, queries):
+        return list(self._process_meta_context_option(option, export_name, queries))
+
     def set_meta_contexts(self, export_name, queries):
         """
         Change the set of active metadata contexts. Only valid during the
@@ -346,7 +349,7 @@ class PythonNbdClient(object):
         Structured replies be negotiated first using
         negotiate_structured_reply.
         """
-        self._send_meta_context_option(
+        return self._send_meta_context_option(
             option=NBD_OPT_SET_META_CONTEXT,
             export_name=export_name,
             queries=queries)
@@ -569,7 +572,11 @@ class PythonNbdClient(object):
         self._flushed = True
 
     def query_block_status(self, offset, length):
-        """Query block status in the range defined by length and offset."""
+        """
+        Query block status in the range defined by length and offset.
+        The required meta contexts must have been negotiated using
+        set_meta_contexts.
+        """
         LOGGER.debug("NBD_CMD_READ")
         self._send_request_header(NBD_CMD_BLOCK_STATUS, offset, length)
         return self._parse_structured_reply_chunks()
