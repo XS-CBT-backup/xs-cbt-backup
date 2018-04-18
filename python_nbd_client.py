@@ -330,6 +330,44 @@ class PythonNbdClient(object):
         data = self._parse_option_reply_ack()
         _assert_protocol(len(data) == 0)
 
+    def request_info(self, export_name, info_requests):
+        """Query information from the server."""
+        data = struct.pack('>L', len(export_name))
+        data += export_name.encode('utf-8')
+        data += struct.pack('>H', len(info_requests))
+        for request in info_requests:
+            data += struct.pack('>H', request)
+        self._send_option(NBD_OPT_INFO, data)
+        infos = []
+        while True:
+            (reply_type, data) = self._parse_option_reply()
+            if reply_type == NBD_REP_INFO:
+                info_type = struct.unpack(">H", data[:2])[0]
+                info = {'information_type': info_type}
+                payload = data[2:]
+                if info_type == NBD_INFO_BLOCK_SIZE:
+                    _assert_protocol(len(data) == 14)
+                    (info['minimum_block_size'],
+                     info['preferred_block_size'],
+                     info['maximum_block_size']) = struct.unpack('>LLL', payload)
+                    infos += [info]
+                elif info_type == NBD_INFO_EXPORT:
+                    _assert_protocol(len(data) == 12)
+                    (info['size'],
+                     info['transmission_flags']) = struct.unpack('>QH', payload)
+                    infos += [info]
+                else:
+                    # The client MUST ignore information replies it does not
+                    # understand.
+                    LOGGER.warning('Unsupported info reply type: %d', info_type)
+            elif reply_type == NBD_REP_ACK:
+                _assert_protocol(not data)
+                break
+            else:
+                raise NBDProtocolError(
+                    'Unexpected reply type: {}'.format(reply_type))
+        return infos
+
     def negotiate_structured_reply(self):
         """
         Negotiate use of the structured reply extension, fail if unsupported.
