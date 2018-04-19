@@ -403,7 +403,7 @@ class PythonNbdClient(object):
         """
         Change the set of active metadata contexts. Only valid during the
         handshake phase.
-        Structured replies be negotiated first using
+        Structured replies must be negotiated first using
         negotiate_structured_reply.
         """
         return self._send_meta_context_option(
@@ -666,7 +666,7 @@ class PythonNbdClient(object):
         """
         LOGGER.debug("NBD_CMD_BLOCK_STATUS")
         self._send_request_header(NBD_CMD_BLOCK_STATUS, offset, length)
-        return self._parse_structured_reply_chunks()
+        return list(self._parse_structured_reply_chunks())
 
     def _disconnect(self):
         if self._transmission_phase:
