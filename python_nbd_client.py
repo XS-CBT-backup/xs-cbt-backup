@@ -205,8 +205,7 @@ class PythonNbdClient(object):
                  new_style_handshake=True,
                  unix=False,
                  connect=True):
-        LOGGER.info("Connecting to export '%s' on host '%s' and port '%s'",
-                    exportname, address, port)
+        LOGGER.info("Creating connection to address '%s' and port '%s'", address, port)
         self._flushed = True
         self._closed = True
         self._handle = 0
@@ -470,6 +469,7 @@ class PythonNbdClient(object):
         Valid only during the handshake phase. Requests the given
         export and enters the transmission phase.
         """
+        LOGGER.info("Connecting to export '%s' using newstyle negotiation", exportname)
         # request export
         self._send_option(NBD_OPT_EXPORT_NAME, str.encode(exportname))
 
@@ -487,6 +487,7 @@ class PythonNbdClient(object):
     #  Oldstyle handshake
 
     def _old_style_handshake(self):
+        LOGGER.info("Connecting to server using oldstyle negotiation")
         nbd_magic = self._recvall(len("NBDMAGIC"))
         _assert_protocol(nbd_magic == b'NBDMAGIC')
         buf = self._recvall(8 + 8 + 4)
