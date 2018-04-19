@@ -18,6 +18,12 @@
 
 """
 A pure-Python NBD client.
+
+This client implement the NBD protocol, and supports both the oldstyle and
+newstyle negotiations:
+https://github.com/NetworkBlockDevice/nbd/blob/master/doc/proto.md
+Additionally, it supports the BLOCK_STATUS extension:
+https://github.com/NetworkBlockDevice/nbd/blob/extension-blockstatus/doc/proto.md
 """
 
 import socket
