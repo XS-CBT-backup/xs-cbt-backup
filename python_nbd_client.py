@@ -404,7 +404,8 @@ class PythonNbdClient(object):
     def set_meta_contexts(self, export_name, queries):
         """
         Change the set of active metadata contexts. Only valid during the
-        handshake phase.
+        handshake phase. Returns the list of selected metadata contexts as
+        (metadata context ID, metadata context name) pairs.
         Structured replies must be negotiated first using
         negotiate_structured_reply.
         """
