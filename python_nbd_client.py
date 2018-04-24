@@ -426,34 +426,6 @@ class PythonNbdClient(object):
             export_name=export_name,
             queries=queries)
 
-    def get_info(self, export_name, info_requests):
-        """Queries information from the server"""
-        data = struct.pack('>L', len(export_name))
-        data += export_name.encode('utf-8')
-        data += struct.pack('>H', len(info_requests))
-        for info in info_requests:
-            data += struct.pack('>H', info)
-        self._send_option(option=NBD_OPT_INFO, data=data)
-        infos = []
-        while True:
-            (reply_type, data) = self._parse_option_reply()
-            if reply_type == NBD_REP_ACK:
-                return infos
-            info = {}
-            view = memoryview(data)
-            info['type'] = struct.unpack(">H", view[:2])[0]
-            view = view[2:]
-            if info['type'] == NBD_INFO_EXPORT:
-                (export_size, transmission_flags) = struct.unpack(">QH", view)
-                info['export_size'] = export_size
-                info['transmission_flags'] = transmission_flags
-            elif info['type'] == NBD_INFO_BLOCK_SIZE:
-                (minimum, preferred, maximum) = struct.unpack(">LLL", view)
-                info['minimum_block_size'] = minimum
-                info['preferred_block_size'] = preferred
-                info['maximum_block_size'] = maximum
-            infos += [info]
-
     def _fixed_new_style_handshake(self, cert, subject, use_tls):
         nbd_magic = self._recvall(len("NBDMAGIC"))
         _assert_protocol(nbd_magic == b'NBDMAGIC')
