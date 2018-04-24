@@ -116,7 +116,7 @@ class NBDOptionError(Exception):
     :attribute reply: The error reply sent by the server.
     """
     def __init__(self, reply):
-        error_code = reply - (2 ** 31)
+        error_code = reply - NBD_REP_ERROR_BIT
         super(NBDOptionError, self).__init__(
             "Server returned error during option haggling: "
             "reply type={}; error code={}".format(reply, error_code))
