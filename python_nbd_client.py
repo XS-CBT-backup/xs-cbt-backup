@@ -308,6 +308,7 @@ class PythonNbdClient(object):
         (reply_type, data) = self._parse_option_reply()
         if reply_type == NBD_REP_ACK:
             return None
+        _assert_protocol(reply_type == NBD_REP_META_CONTEXT)
         context_id = struct.unpack(">L", data[:4])[0]
         name = (data[4:]).decode('utf-8')
         return (context_id, name)
