@@ -195,9 +195,10 @@ def _check_alignment(name, value):
 
 class PythonNbdClient(object):
     """
-    A pure-Python NBD client. Supports both the fixed-newstyle and the
-    oldstyle negotiation, and also has support for upgrading the
-    connection to TLS during fixed-newstyle negotiation.
+    A pure-Python NBD client. Supports both the fixed-newstyle and the oldstyle
+    negotiation, and also has support for upgrading the connection to TLS
+    during fixed-newstyle negotiation, structured replies, and the BLOCK_STATUS
+    extension.
     """
 
     def __init__(self,
