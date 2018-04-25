@@ -520,7 +520,9 @@ class PythonNbdClient(object):
         return data
 
     def _handle_block_status_reply(self, fields):
-        data = self._recvall(fields['data_length'])
+        data_length = fields['data_length']
+        _assert_protocol((data_length >= 12) and (data_length % 8 == 4))
+        data = self._recvall(data_length)
         view = memoryview(data)
         fields['context_id'] = struct.unpack(">L", view[:4])[0]
         view = view[4:]
@@ -529,12 +531,16 @@ class PythonNbdClient(object):
             (length, status_flags) = struct.unpack(">LL", view[:8])
             descriptors += [(length, status_flags)]
             view = view[8:]
+        _assert_protocol(descriptors)
         fields['descriptors'] = descriptors
 
     def _handle_data_reply(self, fields):
+        data_length = fields['data_length']
+        _assert_protocol(data_length >= 9)
         buf = self._recvall(8)
         fields['offset'] = struct.unpack(">Q", buf)[0]
-        fields['data'] = self._recvall(fields['data_length'] - 8)
+        fields['data'] = self._recvall(data_length - 8)
+        _assert_protocol(fields['data'])
 
     def _handle_hole_reply(self, fields):
         _assert_protocol(fields['data_length'] == 12)
@@ -547,8 +553,8 @@ class PythonNbdClient(object):
         fields['error'] = errno
         remaining_length = fields['data_length'] - 6
         if message_length > remaining_length:
-            # message_length is too large to fit within data_length bytes
-            raise NBDProtocolError
+            raise NBDProtocolError(
+                'message_length is too large to fit within data_length bytes')
         data = self._recvall(remaining_length)
         view = memoryview(data)
         fields['message'] = view[0:message_length].tobytes().decode('utf-8')
