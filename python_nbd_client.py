@@ -197,6 +197,14 @@ def _is_final_structured_reply_chunk(flags):
     return flags & NBD_REPLY_FLAG_DONE == NBD_REPLY_FLAG_DONE
 
 
+def is_error_chunk(reply_type):
+    """
+    Returns true if the structured reply chunk with the given type is an error
+    chunk.
+    """
+    return reply_type & NBD_REPLY_TYPE_ERROR_BIT != 0
+
+
 class PythonNbdClient(object):
     """
     A pure-Python NBD client. Supports both the fixed-newstyle and the oldstyle
@@ -568,7 +576,7 @@ class PythonNbdClient(object):
             self._handle_data_reply(fields)
         elif reply_type == NBD_REPLY_TYPE_OFFSET_HOLE:
             self._handle_hole_reply(fields)
-        elif reply_type & NBD_REPLY_TYPE_ERROR_BIT != 0:
+        elif is_error_chunk(reply_type=reply_type):
             self._handle_structured_reply_error(fields)
         else:
             raise NBDUnexpectedStructuredReplyType(reply_type)
