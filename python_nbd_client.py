@@ -193,6 +193,10 @@ def _check_alignment(name, value):
     raise ValueError("%s=%i is not a multiple of 512" % (name, value))
 
 
+def _is_final_structured_reply_chunk(flags):
+    return flags & NBD_REPLY_FLAG_DONE == NBD_REPLY_FLAG_DONE
+
+
 class PythonNbdClient(object):
     """
     A pure-Python NBD client. Supports both the fixed-newstyle and the oldstyle
@@ -559,6 +563,7 @@ class PythonNbdClient(object):
             self._handle_block_status_reply(fields)
         elif reply_type == NBD_REPLY_TYPE_NONE:
             _assert_protocol(data_length == 0)
+            _assert_protocol(_is_final_structured_reply_chunk(flags=flags))
         elif reply_type == NBD_REPLY_TYPE_OFFSET_DATA:
             self._handle_data_reply(fields)
         elif reply_type == NBD_REPLY_TYPE_OFFSET_HOLE:
@@ -573,7 +578,7 @@ class PythonNbdClient(object):
         while True:
             reply = self._parse_structured_reply_chunk()
             yield reply
-            if reply['flags'] & NBD_REPLY_FLAG_DONE == NBD_REPLY_FLAG_DONE:
+            if _is_final_structured_reply_chunk(flags=reply['flags']):
                 return
 
     def write(self, data, offset):
