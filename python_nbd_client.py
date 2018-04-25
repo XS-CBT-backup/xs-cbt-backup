@@ -609,6 +609,7 @@ class PythonNbdClient(object):
         self._flushed = False
         self._send_request_header(NBD_CMD_WRITE, offset, len(data))
         self._s.sendall(data)
+        # TODO: the server MAY respond with a structured reply (e.g. to report errors)
         self._parse_simple_reply()
         return len(data)
 
@@ -645,6 +646,7 @@ class PythonNbdClient(object):
             return True
         LOGGER.debug("NBD_CMD_FLUSH")
         self._send_request_header(NBD_CMD_FLUSH, 0, 0)
+        # TODO: the server MAY respond with a structured reply (e.g. to report errors)
         self._parse_simple_reply()
         self._flushed = True
 
