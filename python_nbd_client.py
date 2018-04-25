@@ -548,10 +548,14 @@ class PythonNbdClient(object):
         (fields['offset'], fields['hole_size']) = struct.unpack(">QL", buf)
 
     def _handle_structured_reply_error(self, fields):
+        data_length = fields['data_length']
+        _assert_protocol(data_length >= 6)
         buf = self._recvall(4 + 2)
         (errno, message_length) = struct.unpack(">LH", buf)
         fields['error'] = errno
-        remaining_length = fields['data_length'] - 6
+        remaining_length = data_length - 6
+        # The client MAY continue transmission in case of an unexpected error
+        # type, unless message_length does not fit into the length:
         if message_length > remaining_length:
             raise NBDProtocolError(
                 'message_length is too large to fit within data_length bytes')
@@ -560,8 +564,7 @@ class PythonNbdClient(object):
         fields['message'] = view[0:message_length].tobytes().decode('utf-8')
         view = view[message_length:]
         if fields['reply_type'] == NBD_REPLY_TYPE_ERROR_OFFSET:
-            (offset) = struct.unpack(">Q", view[:8])
-            fields['offset'] = offset
+            fields['offset'] = struct.unpack(">Q", view)[0]
 
     def _parse_structured_reply_chunk(self):
         LOGGER.debug("NBD parsing structured reply chunk")
