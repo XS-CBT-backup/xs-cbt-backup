@@ -653,11 +653,9 @@ class PythonNbdClient(object):
     def query_block_status(self, offset, length):
         """
         Query block status in the range defined by length and offset.
+        Returns a list of structured reply chunks.
         The required meta contexts must have been negotiated using
         set_meta_contexts.
-        The caller must consume the returned generator before further NBD
-        commands, since this client does not support asynchronous request
-        processing.
         """
         LOGGER.debug("NBD_CMD_BLOCK_STATUS")
         self._send_request_header(NBD_CMD_BLOCK_STATUS, offset, length)
