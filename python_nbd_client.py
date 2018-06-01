@@ -472,7 +472,7 @@ class PythonNbdClient(object):
         """
         LOGGER.info("Connecting to export '%s' using newstyle negotiation", exportname)
         # request export
-        self._send_option(NBD_OPT_EXPORT_NAME, str.encode(exportname))
+        self._send_option(NBD_OPT_EXPORT_NAME, exportname.encode('utf-8'))
 
         # non-fixed newstyle negotiation: we get these if the server is willing
         # to allow the export
