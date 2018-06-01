@@ -23,7 +23,7 @@ This client implement the NBD protocol, and supports both the oldstyle and
 newstyle negotiations:
 https://github.com/NetworkBlockDevice/nbd/blob/master/doc/proto.md
 Additionally, it supports the BLOCK_STATUS extension:
-https://github.com/NetworkBlockDevice/nbd/blob/extension-blockstatus/doc/proto.md
+for the extension docs, see the same file in the extension-blockstatus branch.
 """
 
 import socket
