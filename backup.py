@@ -155,7 +155,7 @@ class BackupConfig(object):
 
     def _get_vm_dir(self, vm_uuid):
         vm_dir = self._backup_dir / vm_uuid
-        vm_dir.mkdir(exist_ok=True)
+        vm_dir.mkdir(parents=True, exist_ok=True)
         return vm_dir
 
     def _get_local_backup_of_snapshot(self, snapshot):
