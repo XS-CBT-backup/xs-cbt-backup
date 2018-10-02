@@ -39,6 +39,7 @@ NBD_CMD_WRITE = 1
 # a disconnect request
 NBD_CMD_DISC = 2
 NBD_CMD_FLUSH = 3
+NBD_CMD_WRITE_ZEROES = 6
 NBD_CMD_BLOCK_STATUS = 7
 
 # Transmission flags
@@ -177,7 +178,7 @@ class NBDUnexpectedReplyHandleError(Exception):
 class NBDProtocolError(Exception):
     """
     The NBD server sent an invalid response that is not allowed by the NBD
-    protocol.
+    protocol. The client must disconnect if this exception is raised.
     """
     pass
 
@@ -629,6 +630,21 @@ class PythonNbdClient(object):
         # errors)
         self._parse_simple_reply()
         return len(data)
+
+    def write_zeroes(self, offset, length):
+        """
+        Writes the given number of zeroes to the export, starting at the given
+        offset.
+        """
+        LOGGER.debug("NBD_CMD_WRITE")
+        _check_alignment("offset", offset)
+        _check_alignment("length", length)
+        self._flushed = False
+        self._send_request_header(NBD_CMD_WRITE_ZEROES, offset, length)
+        # TODO: the server MAY respond with a structured reply (e.g. to report
+        # errors)
+        self._parse_simple_reply()
+        return length
 
     def read(self, offset, length):
         """
