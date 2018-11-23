@@ -15,7 +15,7 @@ import shutil
 import time
 import xml.etree.ElementTree as ElementTree
 
-import XenAPI
+from xenapi import XenAPI
 
 from cbt_bitmap import CbtBitmap
 from vdi_downloader import VdiDownloader
