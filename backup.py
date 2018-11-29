@@ -59,6 +59,9 @@ def enable_cbt(session, vm_ref):
 
 def _compare_checksums(session, vdi, backup):
     print("Starting to checksum VDI on server side")
+    # VDI.checksum is a hidden call, and therefore should not be used by
+    # clients - it's output, or the checksum algorithm it uses, is not
+    # guaranteed to remain the same
     task = session.xenapi.Async.VDI.checksum(vdi)
     print("Checksumming local backup")
     backup_checksum = md5sum.md5sum(backup)
@@ -351,5 +354,8 @@ if __name__ == '__main__':
             sr = session.xenapi.SR.get_by_uuid(args.sr)
             host = session.xenapi.host.get_by_uuid(args.host)
             print(config.restore(vm_uuid=args.vm, timestamp=args.ts, sr=sr, host=host))
+    except Exception:
+        logging.exception('Operation failed')
+        raise
     finally:
         session.xenapi.logout()

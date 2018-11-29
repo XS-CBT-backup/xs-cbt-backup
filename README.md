@@ -34,8 +34,8 @@ One way of setting this up on Ubuntu:
 
 ## Possible Improvements:
 
-* Download the initial disk as VHD and create a sparse file using `truncate`
-* Upload as VHD reconstructed from sparse file using `SEEK_DATA`
+* Download the initial disk as VHD and create a sparse file using `truncate` or qemu-img
+* Upload as VHD reconstructed from sparse file using `SEEK_DATA` or qemu-img
 * Quiesce VM? - in case backups of Windows VMs are unusable
 
 [requests]: http://docs.python-requests.org/en/master/
